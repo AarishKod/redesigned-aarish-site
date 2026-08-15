@@ -351,6 +351,68 @@ window.flash = (name) => {
     m.material.emissiveIntensity = 8;
 };
 
+function makeAFrame(imgPath, x, z) {
+  const W = 1.1;
+  const H = 1.5;
+  const D = 0.05;
+  const SPLAY = 0.22;                  // radians each panel leans
+
+  const group = new THREE.Group();
+
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 0x3a352e, roughness: 0.85, metalness: 0
+  });
+
+  const tex = new THREE.TextureLoader().load(imgPath);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const faceMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.7 });
+
+  function panel(faceForward) {
+    const p = new THREE.Group();
+
+    // outer frame — four rails around the opening
+    const railW = 0.09;
+    const mk = (w, h, px, py) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, D), frameMat);
+      m.position.set(px, py, 0);
+      m.castShadow = true;
+      return m;
+    };
+    p.add(mk(W, railW, 0, H / 2 - railW / 2));
+    p.add(mk(W, railW, 0, -H / 2 + railW / 2));
+    p.add(mk(railW, H, -W / 2 + railW / 2, 0));
+    p.add(mk(railW, H, W / 2 - railW / 2, 0));
+
+    // the photo, inset slightly so the frame sits proud of it
+    const inner = new THREE.Mesh(
+      new THREE.PlaneGeometry(W - railW * 2, H - railW * 2),
+      faceForward ? faceMat : frameMat
+    );
+    inner.position.z = D / 2 - 0.008;
+    p.add(inner);
+
+    return p;
+  }
+
+  const front = panel(true);
+  front.position.set(0, H / 2, 0);
+  front.rotation.x = -SPLAY;
+  group.add(front);
+
+  const back = panel(false);
+  back.position.set(0, H / 2, 0);
+  back.rotation.x = SPLAY;
+  back.rotation.y = Math.PI;
+  group.add(back);
+
+  group.position.set(x, 0, z);
+  group.rotation.y = Math.PI;
+  scene.add(group);
+  return group;
+}
+
+makeAFrame('images/IMG_4883.jpeg', 2, 0);
 
 // ---------------------------------------------------------------------------
 // Resize
