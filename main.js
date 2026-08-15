@@ -12,6 +12,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 
 const MODEL_PATH = 'models/o_model.glb';
 const HDRI_PATH = 'models/ferndale_studio_01_4k.hdr';
+const clickable = [];
 
 // Toggle to light the brake lights (running lights stay on permanently).
 let brakesOn = false;
@@ -37,7 +38,7 @@ document.body.appendChild(renderer.domElement);
 // ---------------------------------------------------------------------------
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xffffff);
+scene.background = new THREE.Color(0xFCFBF8);
 
 const camera = new THREE.PerspectiveCamera(
     35,
@@ -45,13 +46,13 @@ const camera = new THREE.PerspectiveCamera(
     0.1,
     1000
 );
-camera.position.set(2.5, 3, -10);
+camera.position.set(2.5, 6, -10);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(2.5, 0.75, 0);
 controls.enableDamping = true;
 controls.update();
-controls.enabled = false;
+controls.enabled = true;
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -160,7 +161,7 @@ new GLTFLoader().load(
             console.log(child.name, `w:${size.x.toFixed(2)} z:${c.z.toFixed(2)} x:${c.x.toFixed(2)}`);
         });
 
-        car.rotation.y = -Math.PI/10;
+        car.rotation.y = -Math.PI / 10;
     },
     (xhr) => {
         if (xhr.total) {
@@ -176,7 +177,7 @@ new GLTFLoader().load(
 
 const loader = new FontLoader();
 loader.load('fonts/Switzer_Black.json', function (font) {
-
+    // 3d text
     const textGeo = new TextGeometry("Hi! I'm Aarish Kodnaney", {
 
         font: font,
@@ -191,14 +192,15 @@ loader.load('fonts/Switzer_Black.json', function (font) {
 
     });
 
-    
-
+    // 3d text
     textGeo.computeBoundingBox();
     const centerOffset = - 0.5 * (textGeo.boundingBox.max.x - textGeo.boundingBox.min.x);
 
-    const textMaterial = new THREE.MeshPhongMaterial({ color: 0x999999, specular: 0x999999, color: 0x999999,
-    roughness: 0.35,
-    metalness: 0 });
+    const textMaterial = new THREE.MeshPhongMaterial({
+        color: 0x999999, specular: 0x2B2926, color: 0x918B80,
+        roughness: 0.35,
+        metalness: 0
+    });
 
     const mesh = new THREE.Mesh(textGeo, textMaterial);
     mesh.position.x = 8;
@@ -206,13 +208,129 @@ loader.load('fonts/Switzer_Black.json', function (font) {
     mesh.position.z = 2;
     mesh.rotation.z = Math.PI;
     mesh.rotation.x = Math.PI;
-    mesh.rotation.y = -Math.PI/100;
+    // mesh.rotation.y = -Math.PI / 100;
 
     mesh.castShadow = true;
     mesh.receiveShadow = true;
 
+
+    // social media buttons
+    function makeFloorButton(label, url, x, z) {
+        const dpr = 4;                       // supersample; it's viewed at an angle
+        const w = 256, h = 88;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+
+        // after the first canvas, before creating the meshes
+        const outlineCanvas = document.createElement('canvas');
+        outlineCanvas.width = w * dpr;
+        outlineCanvas.height = h * dpr;
+        const octx = outlineCanvas.getContext('2d');
+        octx.scale(dpr, dpr);
+        octx.rect(2, 2, w - 4, h - 4);
+        octx.lineWidth = 2;
+        octx.strokeStyle = '#333333';
+        octx.stroke();
+
+        const outlineTex = new THREE.CanvasTexture(outlineCanvas);
+        outlineTex.colorSpace = THREE.SRGBColorSpace;
+        outlineTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+        // pill
+        ctx.beginPath();
+        ctx.rect(2, 2, w - 4, h - 4);        // was roundRect
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#FCFBF8';
+        ctx.stroke();                         // no fill() — transparent interior
+
+        // label
+        ctx.fillStyle = '#2B2926';
+        ctx.font = '600 30px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, w / 2, h / 2 + 1);
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+        const scale = 0.008;                 // px → world units
+        const mesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(w * scale, h * scale),
+            new THREE.MeshBasicMaterial({ map: tex, transparent: true })
+        );
+
+        mesh.position.set(x, 0.02, z);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.rotation.z = Math.PI;
+        // mesh.rotation.y = Math.PI / 100;
+        mesh.userData.url = url;
+        mesh.userData.canvasRedraw = (hovered) => { /* see below */ };
+
+        scene.add(mesh);
+
+        const outline = new THREE.Mesh(
+    new THREE.PlaneGeometry(w * scale, h * scale),
+    new THREE.MeshBasicMaterial({ map: outlineTex, transparent: true, opacity: 0 })
+);
+        outline.rotation.copy(mesh.rotation);
+        outline.position.set(x, 0.02, z);
+        scene.add(outline);
+
+        mesh.userData.outline = outline;
+        mesh.userData.baseY = 0.02;
+
+        clickable.push(mesh);
+        return mesh;
+    }
+
+    makeFloorButton('GitHub', 'https://github.com/...', 7, 1);
+    makeFloorButton('LinkedIn', 'https://linkedin.com/in/...', 4.5, 1);
+
     scene.add(mesh);
 
+});
+
+// ---------------------------------------------------------------------------
+// Social Media Button Interaction
+// ---------------------------------------------------------------------------
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+
+function updatePointer(e) {
+    pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+    pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+}
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+    updatePointer(e);
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObjects(clickable)[0];
+
+    clickable.forEach(m => m.material.color.set(0x999999));
+    if (hit) hit.object.material.color.set(0x333333);
+    renderer.domElement.style.cursor = hit ? 'pointer' : 'default';
+});
+
+renderer.domElement.addEventListener('click', (e) => {
+    updatePointer(e);
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObjects(clickable)[0];
+    if (hit) window.open(hit.object.userData.url, '_blank', 'noopener');
+});
+let hoveredButton = null;
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+    updatePointer(e);
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObjects(clickable)[0];
+    hoveredButton = hit ? hit.object : null;
+    renderer.domElement.style.cursor = hit ? 'pointer' : 'default';
 });
 
 // Call this from a button, keypress, whatever.
@@ -233,6 +351,7 @@ window.flash = (name) => {
     m.material.emissiveIntensity = 8;
 };
 
+
 // ---------------------------------------------------------------------------
 // Resize
 // ---------------------------------------------------------------------------
@@ -251,6 +370,16 @@ function animate(time) {
     const lit = Math.floor(time / 500) % 2 === 0;
     lamps.hazards.forEach(m => m.material.emissiveIntensity = lit ? 5 : 0);
     controls.update();
+    // in animate()
+    clickable.forEach(m => {
+        const o = m.userData.outline;
+        const target = m === hoveredButton ? 0.1 : 0;
+
+        o.position.y += (m.userData.baseY + target - o.position.y) * 0.15;
+
+        const targetOpacity = m === hoveredButton ? 1 : 0;
+        o.material.opacity += (targetOpacity - o.material.opacity) * 0.15;
+    });
     renderer.render(scene, camera);
 }
 
