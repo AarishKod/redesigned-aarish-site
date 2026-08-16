@@ -9,9 +9,67 @@
             margin: 0;
         }
     </style>
+    <link rel="stylesheet" href="style.css">
+    
 </head>
 
 <body>
+    <nav class="nav">
+  <a class="wordmark" href="#">Aarish Kodnaney</a>
+ 
+  <div class="pills">
+    <a class="pill is-active" href="#top">Overview</a>
+ 
+    <div class="menu-wrap">
+      <button class="pill has-menu" aria-expanded="false" aria-haspopup="true" aria-controls="exp-menu">
+        Experience
+        <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+ 
+      <div class="menu" id="exp-menu" role="menu">
+        <a href="#munichre" role="menuitem">
+          <span class="label">Munich Re</span>
+          <span class="sub">Data engineering · Princeton, NJ</span>
+        </a>
+        <a href="#northeastern" role="menuitem">
+          <span class="label">Northeastern</span>
+          <span class="sub">CS and business · Boston, MA</span>
+        </a>
+      </div>
+    </div>
+  </div>
+ 
+  <div class="spacer"></div>
+ 
+  <div class="right">
+    <a class="pill" href="https://github.com/" target="_blank" rel="noopener">GitHub</a>
+    <a class="pill" href="https://linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+  </div>
+</nav>
+ 
+<script>
+  const trigger = document.querySelector('.has-menu');
+  const menu = document.getElementById('exp-menu');
+ 
+  function setOpen(open) {
+    menu.classList.toggle('is-open', open);
+    trigger.setAttribute('aria-expanded', String(open));
+  }
+ 
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setOpen(trigger.getAttribute('aria-expanded') !== 'true');
+  });
+ 
+  document.addEventListener('click', (e) => {
+    if (!menu.contains(e.target)) setOpen(false);
+  });
+ 
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { setOpen(false); trigger.focus(); }
+  });
+</script>
+ 
     <script type="module" src="/main.js"></script>
 </body>
 

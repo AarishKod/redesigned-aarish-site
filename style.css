@@ -1,0 +1,202 @@
+:root {
+    --paper: #FCFBF8;
+    --chalk: #DDD9CF;
+    --graphite: #2B2926;
+    --stone: #918B80;
+    --taillight: #D0021B;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--paper);
+    font-family: 'Switzer', -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    color: var(--graphite);
+}
+
+/* ---------- the bar ---------- */
+
+.nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    padding: 0 28px;
+
+    background: rgba(252, 251, 248, 0.65);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid rgba(43, 41, 38, 0.07);
+}
+
+.wordmark {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--graphite);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+/* ---------- pill group ---------- */
+
+.pills {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pill {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--stone);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 160ms ease, color 160ms ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.pill:hover {
+    color: var(--graphite);
+}
+
+.pill.is-active {
+    background: rgba(43, 41, 38, 0.07);
+    color: var(--graphite);
+}
+
+.pill:focus-visible {
+    outline: 2px solid var(--taillight);
+    outline-offset: 2px;
+}
+
+.chev {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+    transition: transform 180ms ease;
+}
+
+.has-menu[aria-expanded="true"] .chev {
+    transform: rotate(180deg);
+}
+
+.has-menu[aria-expanded="true"] {
+    color: var(--graphite);
+}
+
+/* current-section marker — the one place red appears */
+.pill.is-current::after {
+    content: '';
+    position: absolute;
+    bottom: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--taillight);
+}
+
+.spacer {
+    flex: 1;
+}
+
+.right {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* ---------- dropdown ---------- */
+
+.menu-wrap {
+    position: relative;
+}
+
+.menu {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    min-width: 260px;
+    padding: 8px;
+    border-radius: 14px;
+
+    background: rgba(252, 251, 248, 0.82);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(43, 41, 38, 0.09);
+    box-shadow: 0 12px 32px rgba(43, 41, 38, 0.10);
+
+    opacity: 0;
+    transform: translateY(-6px);
+    pointer-events: none;
+    transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.menu.is-open {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.menu a {
+    display: block;
+    padding: 10px 14px;
+    border-radius: 9px;
+    text-decoration: none;
+    color: var(--graphite);
+    transition: background 140ms ease;
+}
+
+.menu a:hover {
+    background: rgba(43, 41, 38, 0.06);
+}
+
+.menu .label {
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.menu .sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--stone);
+}
+
+@media (max-width: 720px) {
+    .nav {
+        gap: 14px;
+        padding: 0 16px;
+    }
+
+    .pill {
+        padding: 0 12px;
+        font-size: 14px;
+    }
+
+    .right .pill {
+        display: none;
+    }
+}
