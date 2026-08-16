@@ -139,6 +139,23 @@ new GLTFLoader().load(
         const box = new THREE.Box3().setFromObject(car);
         car.position.y -= box.min.y;
 
+        car.updateMatrixWorld(true);
+
+        const WHEEL_MATS = ['Wheel1A', 'Wheel2A', 'Wheel_metal', 'Wheel_Plastic',
+            'disc_', 'caliper_'];
+
+        const wheelParts = [];
+
+        car.traverse((child) => {
+            if (!child.isMesh) return;
+            if (!WHEEL_MATS.some(m => child.material.name.includes(m))) return;
+
+            const c = new THREE.Box3().setFromObject(child).getCenter(new THREE.Vector3());
+            console.log(child.name, child.material.name,
+                `x:${c.x.toFixed(2)} z:${c.z.toFixed(2)}`);
+            wheelParts.push({ mesh: child, center: c });
+        });
+
         car.traverse((child) => {
             if (!child.isMesh) return;
             child.castShadow = true;
@@ -164,20 +181,63 @@ new GLTFLoader().load(
             const b = new THREE.Box3().setFromObject(child);
             const size = b.getSize(new THREE.Vector3());
             const c = b.getCenter(new THREE.Vector3());
-            console.log(child.name, `w:${size.x.toFixed(2)} z:${c.z.toFixed(2)} x:${c.x.toFixed(2)}`);
+            // console.log(child.name, `w:${size.x.toFixed(2)} z:${c.z.toFixed(2)} x:${c.x.toFixed(2)}`);
         });
 
         car.rotation.y = -Math.PI / 10;
+        buildWheels();
     },
     (xhr) => {
         if (xhr.total) {
             console.log(`${((xhr.loaded / xhr.total) * 100).toFixed(0)}% loaded`);
         }
     },
-    (err) => console.error('Model failed to load:', err)
+    (err) => console.error('Model failed to load:', err),
 );
 
 
+// WHEELS
+const wheels = [];
+
+function buildWheels() {
+    car.updateMatrixWorld(true);
+
+    const SPIN_MATS = ['Wheel1A', 'Wheel2A', 'Wheel_metal', 'Wheel_Plastic', 'disc_'];
+    const buckets = new Map();   // "FL" | "FR" | "RL" | "RR"
+
+    car.traverse((child) => {
+        if (!child.isMesh) return;
+        const name = child.material.name;
+        if (!SPIN_MATS.some(m => name.includes(m))) return;
+        if (name.includes('caliper')) return;          // stays fixed
+
+        const c = new THREE.Box3().setFromObject(child).getCenter(new THREE.Vector3());
+        const local = car.worldToLocal(c.clone());
+        const key = (local.z > 0 ? 'F' : 'R') + (local.x < 0 ? 'L' : 'R');
+
+        if (!buckets.has(key)) buckets.set(key, { parts: [], sum: new THREE.Vector3(), n: 0 });
+        const b = buckets.get(key);
+        b.parts.push(child);
+        b.sum.add(local);
+        b.n++;
+    });
+
+    for (const [key, b] of buckets) {
+        const pivot = b.sum.clone().divideScalar(b.n);
+
+        const g = new THREE.Group();
+        g.position.copy(pivot);
+        car.add(g);
+
+        b.parts.forEach(p => g.attach(p));            // preserves world transform
+
+        const size = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3());
+        g.userData.radius = size.y / 2;
+
+        wheels.push(g);
+        console.log(key, b.parts.length, 'parts, r =', g.userData.radius.toFixed(3));
+    }
+}
 
 // Call this from a button, keypress, whatever.
 function setBrakes(on) {
@@ -215,21 +275,54 @@ window.addEventListener('resize', () => {
 renderer.domElement.id = 'scene';
 document.body.appendChild(renderer.domElement);
 
+const STATIONS = [0, 40, 80];
+const TRACK_END = STATIONS[STATIONS.length - 1];
+let carZ = 0;
+const HERO_POS = new THREE.Vector3(2.5, 6, -10);
+const HERO_TGT = new THREE.Vector3(2.5, 0.75, 0);
+const BLEND_DIST = 8;              // world units over which the handoff happens
+
+const _pos = new THREE.Vector3();  // scratch, reused each frame
+const _tgt = new THREE.Vector3();
+let prevZ = 0;
+key.target = new THREE.Object3D();
+scene.add(key.target);
+
 function animate(time) {
+    const max = document.body.scrollHeight - window.innerHeight;
+    const target = max > 0
+        ? THREE.MathUtils.clamp(window.scrollY / max, 0, 1) * TRACK_END
+        : 0;
+
+    carZ += (target - carZ) * 0.06;
+    const delta = carZ - prevZ;
+    prevZ = carZ;
+
+    wheels.forEach(w => w.rotation.x += delta / w.userData.radius);
+    // in animate, after carZ updates
+    ground.position.z = carZ;
+
+    key.position.set(5, 10, carZ + 7.5);
+    key.target.position.set(0, 0, carZ);
+    key.target.updateMatrixWorld();
+
+    if (car) car.position.z = carZ;
+
+    const t = THREE.MathUtils.smoothstep(carZ, 0, BLEND_DIST);
+
+    _pos.set(0, 3, carZ - 10);
+    camera.position.lerpVectors(HERO_POS, _pos, t);
+
+    _tgt.set(0, 0.75, carZ);
+    camera.lookAt(_tgt.lerpVectors(HERO_TGT, _tgt, t));
+
+    // hazards
     const lit = Math.floor(time / 500) % 2 === 0;
     lamps.hazards.forEach(m => m.material.emissiveIntensity = lit ? 5 : 0);
-    controls.update();
-    // in animate()
-    clickable.forEach(m => {
-        const o = m.userData.outline;
-        const target = m === hoveredButton ? 0.1 : 0;
 
-        o.position.y += (m.userData.baseY + target - o.position.y) * 0.15;
-
-        const targetOpacity = m === hoveredButton ? 1 : 0;
-        o.material.opacity += (targetOpacity - o.material.opacity) * 0.15;
-    });
     renderer.render(scene, camera);
+
+
 }
 
 renderer.setAnimationLoop(animate);

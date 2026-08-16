@@ -279,3 +279,28 @@ body {
 .hero-links a:hover {
     border-color: var(--graphite);
 }
+
+.stop {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 8vw;
+    max-width: 46ch;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 600ms ease, transform 600ms ease;
+}
+
+.stop.visible {
+    opacity: 1;
+    transform: none;
+}
+
+.eyebrow {
+    font-family: ui-monospace, monospace;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    color: var(--taillight);
+    margin-bottom: 1rem;
+}
