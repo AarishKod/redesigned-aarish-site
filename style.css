@@ -200,3 +200,82 @@ body {
         display: none;
     }
 }
+
+#scene {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    display: block;
+}
+
+.overlay {
+    position: relative;
+    z-index: 1;
+    pointer-events: none;
+    /* scroll and drag pass through to the canvas */
+}
+
+.overlay a,
+.overlay button {
+    pointer-events: auto;
+    /* but these stay clickable */
+}
+
+.hero {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
+    /* padding: 0 8vw;
+    max-width: 44ch; */
+    width: 60vw;
+}
+
+.img-cont {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.profile {
+    border-radius: 50%;
+    object-fit: cover;
+    height: 25vh;
+    aspect-ratio: 1 / 1;
+}
+
+.text-cont {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-width: 60%;
+
+}
+
+.hero h1 {
+    font-family: 'Switzer', sans-serif;
+    font-weight: 900;
+    font-size: clamp(2.5rem, 6vw, 5rem);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    color: var(--graphite);
+    margin: 0 0 2rem;
+}
+
+.hero-links {
+    display: flex;
+    gap: 1rem;
+}
+
+.hero-links a {
+    padding: 0.7rem 1.6rem;
+    border: 1px solid var(--stone);
+    color: var(--graphite);
+    text-decoration: none;
+    font-size: 0.95rem;
+    transition: border-color 160ms, color 160ms;
+}
+
+.hero-links a:hover {
+    border-color: var(--graphite);
+}
