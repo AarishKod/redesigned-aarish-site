@@ -269,8 +269,8 @@ body {
 
 .hero-links a {
     padding: 0.7rem 1.6rem;
-    border: 1px solid var(--stone);
-    color: var(--graphite);
+    /* border: 1px solid var(--stone);
+    color: var(--graphite); */
     text-decoration: none;
     font-size: 0.95rem;
     transition: border-color 160ms, color 160ms;
