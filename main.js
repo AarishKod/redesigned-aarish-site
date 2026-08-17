@@ -9,24 +9,60 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 
 const MODEL_PATH = 'models/o_model.glb';
 const HDRI_PATH = 'models/ferndale_studio_01_4k.hdr';
+const BUILDING_PATH = 'models/free_london_skyscraper.glb';
 
-// Track layout. Scroll progress maps onto 0 → TRACK_END in world units.
+// Track layout. Scroll progress maps onto 0 → TRACK_END in world units of z.
 const STATIONS = [0, 40, 80];
 const TRACK_END = STATIONS[STATIONS.length - 1];
 
-// Camera framing at rest, before the chase cam takes over.
+// --- track direction -------------------------------------------------------
+// The car drives in a straight line, angled toward the building rather than
+// straight down +z. z is deliberately kept at 1 so carZ stays equal to the
+// car's literal world z, which keeps the scroll and blend maths readable.
+//
+// To land the car beside the building, set:
+//     TRACK_LATERAL = (desired final x) / TRACK_END
+// e.g. arriving at x = -14 over 80 units → -0.175
+const TRACK_LATERAL = -0.18;
+
+const TRACK_DIR = new THREE.Vector3(TRACK_LATERAL, 0, 1);
+const TRACK_LEN = TRACK_DIR.length();               // > 1 on a diagonal
+
+// Heading while driving is derived from the track direction, so the nose points
+// exactly where the car is going — no crabbing. The hero pose is a separate
+// angle, and the two blend over BLEND_DIST.
+const DRIVE_HEADING = Math.atan2(TRACK_DIR.x, TRACK_DIR.z);
+const HERO_HEADING = -Math.PI / 10;
+
+// --- camera ----------------------------------------------------------------
+// Absolute framing at rest, before the chase cam takes over.
 const HERO_POS = new THREE.Vector3(2.5, 6, -10);
 const HERO_TGT = new THREE.Vector3(2.5, 0.75, 0);
-const BLEND_DIST = 8;            // world units over which the handoff happens
+const BLEND_DIST = 8;            // world units over which the hero handoff happens
 
-// The car travels along +z, so any non-zero heading makes it crab sideways.
-// Set to something like -Math.PI / 10 if you prefer the angled hero pose and
-// don't mind the drift once it's moving.
-const CAR_HEADING = -Math.PI / 10;
+// Chase offsets, expressed RELATIVE TO THE CAR. Keeping them relative is what
+// holds the framing distance constant — absolute x would let the gap grow as
+// the car drifts laterally.
+const CAM_SIDE_OFF = new THREE.Vector3(8, 3, -10);
+const CAM_SIDE_AIM = new THREE.Vector3(-7, 0.75, 0);
+
+const CAM_REAR_OFF = new THREE.Vector3(0, 2.2, -9);
+const CAM_REAR_AIM = new THREE.Vector3(-3, 0.75, 0);
+
+// Where the swing from side view to rear view starts and finishes, in world z.
+// Ends short of TRACK_END because damping means carZ only ever approaches it.
+const ARRIVE_START = 5;
+const ARRIVE_END = 40;
 
 const SCROLL_DAMPING = 0.06;     // lower = heavier, more trailing
 const MAX_WHEEL_SPEED = 4.5;     // world units/sec — caps apparent wheel speed
 const HAZARD_PERIOD = 500;       // ms per on/off phase (~1 Hz)
+
+// --- building --------------------------------------------------------------
+const BUILDING_POS = new THREE.Vector3(-23, 4.13, 65);
+const BUILDING_ROT_Y = 0;
+const CUT_HEIGHT = 14;           // cull meshes starting above this; null = keep all
+const LOG_BUILDING_MESHES = false;   // flip on to re-measure the slab and footprint
 
 // Lamp meshes, identified by name. Every exterior lamp shares one material,
 // so these had to be found geometrically rather than by material name:
@@ -93,19 +129,20 @@ new RGBELoader().load(
 // ---------------------------------------------------------------------------
 
 // Key light. Carries the cast shadow; the HDRI carries most of the exposure.
+// The frustum is wide enough to cover the building as well as the car.
 const key = new THREE.DirectionalLight(0xffffff, 0.8);
 key.position.set(5, 10, 7.5);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.top = 5;
-key.shadow.camera.bottom = -5;
-key.shadow.camera.left = -5;
-key.shadow.camera.right = 5;
+key.shadow.camera.top = 40;
+key.shadow.camera.bottom = -40;
+key.shadow.camera.left = -40;
+key.shadow.camera.right = 40;
 key.shadow.radius = 8;
 scene.add(key);
 
-// The shadow frustum is only ±5 around the light's target, so the target has
-// to travel with the car or the shadow gets left behind.
+// The shadow frustum is centred on the light's target, so the target travels
+// with the car or the shadow gets left behind.
 key.target = new THREE.Object3D();
 scene.add(key.target);
 
@@ -130,20 +167,23 @@ for (const x of [3, -3]) {
 // ---------------------------------------------------------------------------
 
 // ShadowMaterial is invisible except where a shadow lands on it, so this can
-// slide along with the car with no visible texture movement.
+// slide along with the car with no visible texture movement. Sits a hair below
+// zero so it doesn't z-fight with the building's plaza slab.
 const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(50, 50),
     new THREE.ShadowMaterial({ opacity: 0.15 })
 );
 ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.01;
 ground.receiveShadow = true;
 scene.add(ground);
 
 // ---------------------------------------------------------------------------
-// Model
+// Car
 // ---------------------------------------------------------------------------
 
 let car = null;
+let carGroundY = 0;              // y offset that sits the car on the floor
 
 const lamps = { bar: [], hazards: [] };
 const wheels = [];
@@ -154,8 +194,10 @@ new GLTFLoader().load(
         car = gltf.scene;
 
         // Sit the car on y = 0 regardless of where its origin was authored.
+        // Stored, because position gets rewritten every frame.
         const box = new THREE.Box3().setFromObject(car);
-        car.position.y -= box.min.y;
+        carGroundY = -box.min.y;
+        car.position.y = carGroundY;
 
         car.traverse((child) => {
             if (!child.isMesh) return;
@@ -177,7 +219,7 @@ new GLTFLoader().load(
         });
 
         scene.add(car);
-        car.rotation.y = CAR_HEADING;
+        car.rotation.y = HERO_HEADING;
 
         // Must run last: reads world-space boxes, so it needs the final
         // position and rotation applied and the car in the scene graph.
@@ -185,7 +227,7 @@ new GLTFLoader().load(
     },
     (xhr) => {
         if (xhr.total) {
-            console.log(`${((xhr.loaded / xhr.total) * 100).toFixed(0)}% loaded`);
+            console.log(`car ${((xhr.loaded / xhr.total) * 100).toFixed(0)}% loaded`);
         }
     },
     (err) => console.error('Model failed to load:', err)
@@ -244,8 +286,84 @@ function buildWheels() {
 }
 
 // ---------------------------------------------------------------------------
+// Building
+// ---------------------------------------------------------------------------
+
+let building = null;
+
+new GLTFLoader().load(
+    BUILDING_PATH,
+    (gltf) => {
+        building = gltf.scene;
+
+        building.rotation.y = BUILDING_ROT_Y;
+        building.position.copy(BUILDING_POS);
+        building.updateMatrixWorld(true);
+
+        const box = new THREE.Box3().setFromObject(building);
+        const size = box.getSize(new THREE.Vector3());
+        console.log(
+            'building', `${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)}`,
+            `| y ${box.min.y.toFixed(2)}→${box.max.y.toFixed(2)}`
+        );
+
+        // Per-mesh footprints — use this to find the plaza slab (large x×z,
+        // small y range near the bottom) when re-tuning placement.
+        if (LOG_BUILDING_MESHES) {
+            building.traverse((child) => {
+                if (!child.isMesh) return;
+                const b = new THREE.Box3().setFromObject(child);
+                const s = b.getSize(new THREE.Vector3());
+                console.log(
+                    child.name,
+                    `| footprint ${s.x.toFixed(1)}×${s.z.toFixed(1)}`,
+                    `| y ${b.min.y.toFixed(2)}→${b.max.y.toFixed(2)}`
+                );
+            });
+        }
+
+        // Cull the tower above the cut height. Collect first, then remove —
+        // mutating the tree during traverse() skips nodes.
+        if (CUT_HEIGHT !== null) {
+            const drop = [];
+            building.traverse((child) => {
+                if (!child.isMesh) return;
+                if (new THREE.Box3().setFromObject(child).min.y > CUT_HEIGHT) drop.push(child);
+            });
+            drop.forEach(m => m.removeFromParent());
+            console.log('culled', drop.length, 'meshes above y =', CUT_HEIGHT);
+        }
+
+        building.traverse((child) => {
+            if (!child.isMesh) return;
+            child.castShadow = true;
+            child.receiveShadow = true;
+        });
+
+
+        scene.add(building);
+        
+
+building.traverse((child) => {
+    if (!child.isMesh) return;
+    const b = new THREE.Box3().setFromObject(child);
+    const s = b.getSize(new THREE.Vector3());
+    if (s.x > 20 && s.z > 20 && s.y < 3) {      // large footprint, thin
+        if (b.max.y > plazaTop) { plazaTop = b.max.y; plazaName = child.name; }
+    }
+});
+console.log('plaza:', plazaName, 'top y =', plazaTop.toFixed(3));
+    },
+    undefined,
+    (err) => console.error('Building failed to load:', err)
+);
+
+// ---------------------------------------------------------------------------
 // Console helpers
 // ---------------------------------------------------------------------------
+
+// with the building loaded
+
 
 // Falls back to 1.5 rather than 0 so the running light stays lit underneath,
 // as on the real car.
@@ -283,6 +401,8 @@ let prevTime = 0;
 
 const _pos = new THREE.Vector3();   // scratch vectors, reused each frame
 const _tgt = new THREE.Vector3();
+const _off = new THREE.Vector3();
+const _aim = new THREE.Vector3();
 
 function animate(time) {
     // --- timing ---
@@ -298,33 +418,49 @@ function animate(time) {
 
     carZ += (target - carZ) * SCROLL_DAMPING;
 
-    const delta = carZ - prevZ;
+    const delta = carZ - prevZ;                     // change in z
     prevZ = carZ;
 
+    const carX = carZ * TRACK_LATERAL;
+
     // --- wheels roll by distance travelled, capped ---
+    // Distance is longer than the z delta on a diagonal, hence TRACK_LEN.
     // The cap keeps apparent speed sane and stays below the rate at which
     // spokes alias between frames and appear to rotate backwards.
+    const travelled = delta * TRACK_LEN;
     const maxThisFrame = MAX_WHEEL_SPEED * dt;
-    const spin = THREE.MathUtils.clamp(delta, -maxThisFrame, maxThisFrame);
+    const spin = THREE.MathUtils.clamp(travelled, -maxThisFrame, maxThisFrame);
     wheels.forEach(w => w.rotation.x += spin / w.userData.radius);
 
-    // --- car ---
-    if (car) car.position.z = carZ;
+    // --- blend factors ---
+    // blend:  hero pose → chase, over the first BLEND_DIST units.
+    // arrive: side view → directly behind, as the car nears the building.
+    const blend = THREE.MathUtils.smoothstep(carZ, 0, BLEND_DIST);
+    const arrive = THREE.MathUtils.smoothstep(carZ, ARRIVE_START, ARRIVE_END);
+
+    // --- car: straight line along the angled track, nose following it ---
+    if (car) {
+        car.position.set(carX, carGroundY, carZ);
+        car.rotation.y = THREE.MathUtils.lerp(HERO_HEADING, DRIVE_HEADING, blend);
+    }
 
     // --- world follows the car ---
-    ground.position.z = carZ;
+    ground.position.set(carX, -0.01, carZ);
 
-    key.position.set(5, 10, carZ + 7.5);
-    key.target.position.set(0, 0, carZ);
+    key.position.set(carX + 5, 10, carZ + 7.5);
+    key.target.position.set(carX, 0, carZ);
     key.target.updateMatrixWorld();
+    
+    // --- camera ---
+    // Offsets are relative to the car, so the framing distance stays constant
+    // however far the car drifts laterally.
+    _off.lerpVectors(CAM_SIDE_OFF, CAM_REAR_OFF, arrive);
+    _aim.lerpVectors(CAM_SIDE_AIM, CAM_REAR_AIM, arrive);
 
-    // --- camera: hero framing, blending into chase ---
-    const blend = THREE.MathUtils.smoothstep(carZ, 0, BLEND_DIST);
-
-    _pos.set(8, 3, carZ - 10);
+    _pos.set(carX + _off.x, _off.y, carZ + _off.z);
     camera.position.lerpVectors(HERO_POS, _pos, blend);
 
-    _tgt.set(-7, 0.75, carZ);
+    _tgt.set(carX + _aim.x, _aim.y, carZ + _aim.z);
     camera.lookAt(_tgt.lerpVectors(HERO_TGT, _tgt, blend));
 
     // --- hazards ---
