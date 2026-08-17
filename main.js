@@ -9,7 +9,6 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 
 const MODEL_PATH = 'models/o_model.glb';
 const HDRI_PATH = 'models/ferndale_studio_01_4k.hdr';
-const BUILDING_PATH = 'models/free_london_skyscraper.glb';
 
 // Track layout. Scroll progress maps onto 0 → TRACK_END in world units of z.
 const STATIONS = [0, 40, 80];
@@ -285,78 +284,6 @@ function buildWheels() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Building
-// ---------------------------------------------------------------------------
-
-let building = null;
-
-new GLTFLoader().load(
-    BUILDING_PATH,
-    (gltf) => {
-        building = gltf.scene;
-
-        building.rotation.y = BUILDING_ROT_Y;
-        building.position.copy(BUILDING_POS);
-        building.updateMatrixWorld(true);
-
-        const box = new THREE.Box3().setFromObject(building);
-        const size = box.getSize(new THREE.Vector3());
-        console.log(
-            'building', `${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)}`,
-            `| y ${box.min.y.toFixed(2)}→${box.max.y.toFixed(2)}`
-        );
-
-        // Per-mesh footprints — use this to find the plaza slab (large x×z,
-        // small y range near the bottom) when re-tuning placement.
-        if (LOG_BUILDING_MESHES) {
-            building.traverse((child) => {
-                if (!child.isMesh) return;
-                const b = new THREE.Box3().setFromObject(child);
-                const s = b.getSize(new THREE.Vector3());
-                console.log(
-                    child.name,
-                    `| footprint ${s.x.toFixed(1)}×${s.z.toFixed(1)}`,
-                    `| y ${b.min.y.toFixed(2)}→${b.max.y.toFixed(2)}`
-                );
-            });
-        }
-
-        // Cull the tower above the cut height. Collect first, then remove —
-        // mutating the tree during traverse() skips nodes.
-        if (CUT_HEIGHT !== null) {
-            const drop = [];
-            building.traverse((child) => {
-                if (!child.isMesh) return;
-                if (new THREE.Box3().setFromObject(child).min.y > CUT_HEIGHT) drop.push(child);
-            });
-            drop.forEach(m => m.removeFromParent());
-            console.log('culled', drop.length, 'meshes above y =', CUT_HEIGHT);
-        }
-
-        building.traverse((child) => {
-            if (!child.isMesh) return;
-            child.castShadow = true;
-            child.receiveShadow = true;
-        });
-
-
-        scene.add(building);
-        
-
-building.traverse((child) => {
-    if (!child.isMesh) return;
-    const b = new THREE.Box3().setFromObject(child);
-    const s = b.getSize(new THREE.Vector3());
-    if (s.x > 20 && s.z > 20 && s.y < 3) {      // large footprint, thin
-        if (b.max.y > plazaTop) { plazaTop = b.max.y; plazaName = child.name; }
-    }
-});
-console.log('plaza:', plazaName, 'top y =', plazaTop.toFixed(3));
-    },
-    undefined,
-    (err) => console.error('Building failed to load:', err)
-);
 
 // ---------------------------------------------------------------------------
 // Console helpers

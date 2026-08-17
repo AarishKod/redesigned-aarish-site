@@ -304,3 +304,13 @@ body {
     color: var(--taillight);
     margin-bottom: 1rem;
 }
+
+#munichre {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 500ms ease, transform 500ms ease;
+}
+#munichre.visible {
+  opacity: 1;
+  transform: none;
+}
