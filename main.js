@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
@@ -9,7 +10,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 // Config
 // ---------------------------------------------------------------------------
 
-const MODEL_PATH = 'models/o_model.glb';
+const MODEL_PATH = 'models/o_model_opt.glb';
 const HDRI_PATH = 'models/ferndale_studio_01_4k.hdr';
 const PRINCETON_BUILDING_PATH = 'models/low-poly_university.glb'
 
@@ -214,7 +215,7 @@ let carGroundY = 0;              // y offset that sits the car on the floor
 const lamps = { bar: [], hazards: [] };
 const wheels = [];
 
-new GLTFLoader().load(
+new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(
     MODEL_PATH,
     (gltf) => {
         car = gltf.scene;
