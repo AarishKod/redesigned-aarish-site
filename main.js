@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
+import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -12,7 +14,7 @@ const HDRI_PATH = 'models/ferndale_studio_01_4k.hdr';
 const PRINCETON_BUILDING_PATH = 'models/low-poly_university.glb'
 
 // Track layout. Scroll progress maps onto 0 → TRACK_END in world units of z.
-const STATIONS = [0, 40, 80];
+const STATIONS = [0, 40, 80, 120];
 const TRACK_END = STATIONS[STATIONS.length - 1];
 
 // --- track direction -------------------------------------------------------
@@ -54,6 +56,17 @@ const CAM_REAR_AIM = new THREE.Vector3(-3, 0.75, 0);
 const ARRIVE_START = 5;
 const ARRIVE_END = 40;
 
+// Finale (station 3): the camera settles directly behind the car with the car
+// centred, and the "NUImpact" 3D sign is revealed to the car's left.
+const FINALE_START = 90;
+const FINALE_END = 116;
+// The finale camera is placed along the car's OWN heading, not the world z axis,
+// so the rear faces us dead-on and no flank shows. FORWARD is the unit heading.
+const FORWARD = TRACK_DIR.clone().normalize();
+const FINALE_DIST = 14;          // how far behind the car the camera sits
+const FINALE_HEIGHT = 7;         // camera elevation at the finale
+const FINALE_AIM_Y = 0.9;        // look at the car's mid-height, so it's centred
+
 const SCROLL_DAMPING = 0.06;     // lower = heavier, more trailing
 const MAX_WHEEL_SPEED = 4.5;     // world units/sec — caps apparent wheel speed
 const HAZARD_PERIOD = 500;       // ms per on/off phase (~1 Hz)
@@ -80,6 +93,7 @@ const stationEls = [
     null,                                   // 0 — hero, always visible
     document.querySelector('#munichre'),    // 1
     document.querySelector('#northeastern'),// 2
+    document.querySelector('#whatsnext'),   // 3
 ];
 const REVEAL_RANGE = 12;          // units before/after the station
 
@@ -335,6 +349,147 @@ function loadBuilding(path, { x = 0, z = 0, rotY = 0, scale = 0.1 } = {}) {
 // loadBuilding('models/nassau_hall.glb', { x: -12, z: 40, rotY: Math.PI / 2 });
 
 // ---------------------------------------------------------------------------
+// "NUImpact" 3D sign (finale)
+// ---------------------------------------------------------------------------
+
+// Anchored to the car's final target position. The car settles at STATIONS[3]
+// on the angled track, so its resting x is derived the same way carX is.
+const FINALE_CAR_X = TRACK_END * TRACK_LATERAL;
+const FINALE_CAR_Z = TRACK_END;
+
+new FontLoader().load(
+    '/fonts/Switzer_Black.json',
+    (font) => {
+        const geo = new TextGeometry('NUImpact', {
+            font,
+            size: 1,
+            depth: 0.6,
+            curveSegments: 8,
+            bevelEnabled: true,
+            bevelThickness: 0.08,
+            bevelSize: 0.05,
+            bevelSegments: 2,
+        });
+        // Centre horizontally (x) and in depth (z) only. Leave y untouched:
+        // TextGeometry's baseline is already at y = 0, so at position y = 0 the
+        // letters sit on the ground and the 'p' descender hangs just below it.
+        geo.computeBoundingBox();
+        const bb = geo.boundingBox;
+        geo.translate(
+            -(bb.max.x + bb.min.x) / 2,
+            0,
+            -(bb.max.z + bb.min.z) / 2
+        );
+
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0xd0021b,        // --taillight
+            // metalness: 0.1,
+            // roughness: 0.5,
+        });
+
+        const sign = new THREE.Mesh(geo, mat);
+        sign.castShadow = true;
+
+        // Face the finale camera (aligned to the car's heading, like the card),
+        // stand upright on the ground, offset to the car's left.
+        sign.rotation.y = Math.PI + DRIVE_HEADING;
+        sign.position.set(FINALE_CAR_X + 5, 0, FINALE_CAR_Z + 5);
+
+        scene.add(sign);
+    },
+    undefined,
+    (err) => console.error('Font failed to load:', err)
+);
+
+// ---------------------------------------------------------------------------
+// NUImpact info card (finale)
+// ---------------------------------------------------------------------------
+
+// A flat, camera-facing panel drawn on a canvas — the title and blurb are baked
+// into a texture rather than built as geometry, which is cheap and crisp.
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+    const words = text.split(' ');
+    let line = '';
+    for (const word of words) {
+        const test = line ? line + ' ' + word : word;
+        if (ctx.measureText(test).width > maxWidth && line) {
+            ctx.fillText(line, x, y);
+            line = word;
+            y += lineHeight;
+        } else {
+            line = test;
+        }
+    }
+    ctx.fillText(line, x, y);
+}
+
+function makeInfoCard(title, body) {
+    const W = 1024, H = 586;             // matches the 7 : 4 ground-plane ratio
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const pad = 28;
+
+    // paper panel with a hairline border
+    ctx.fillStyle = '#FCFBF8';
+    ctx.strokeStyle = 'rgba(43,41,38,0.12)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(pad, pad, W - pad * 2, H - pad * 2, 40);
+    ctx.fill();
+    ctx.stroke();
+
+    // red accent bar (the one place red appears, matching the site)
+    ctx.fillStyle = '#D0021B';
+    ctx.beginPath();
+    ctx.roundRect(pad + 56, pad + 60, 96, 12, 6);
+    ctx.fill();
+
+    // title
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#2B2926';
+    ctx.font = '700 72px Switzer, sans-serif';
+    ctx.fillText(title, pad + 54, pad + 108);
+
+    // body, wrapped
+    ctx.fillStyle = '#5b564e';
+    ctx.font = '400 42px Switzer, sans-serif';
+    wrapText(ctx, body, pad + 56, pad + 226, W - (pad + 56) * 2, 56);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+    const card = new THREE.Mesh(
+        new THREE.PlaneGeometry(7, 4),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide })
+    );
+    // Lay the panel flat on the ground, texture facing up.
+    card.rotation.x = -Math.PI / 2;
+
+    // A parent group handles the in-plane orientation: spinning about Y keeps the
+    // panel flat while turning the text to read right-side up from the finale
+    // camera (+Math.PI flips the near/far edge) and aligning it to the car's heading.
+    const cardGroup = new THREE.Group();
+    cardGroup.add(card);
+    cardGroup.rotation.y = Math.PI + DRIVE_HEADING;
+    // Sit just in front of the NUImpact text — toward the camera along −FORWARD —
+    // a hair above the ground plane to avoid z-fighting.
+    cardGroup.position.set(
+        FINALE_CAR_X + 5 - FORWARD.x * 4,
+        0.02,
+        FINALE_CAR_Z - FORWARD.z * 4 + 5
+    );
+    scene.add(cardGroup);
+}
+
+makeInfoCard(
+    'Rotational Associate',
+    "Northeastern's student-run impact investing VC fund with $600k AUM"
+);
+
+// ---------------------------------------------------------------------------
 // Console helpers
 // ---------------------------------------------------------------------------
 
@@ -381,6 +536,8 @@ const _pos = new THREE.Vector3();   // scratch vectors, reused each frame
 const _tgt = new THREE.Vector3();
 const _off = new THREE.Vector3();
 const _aim = new THREE.Vector3();
+const _fpos = new THREE.Vector3();  // finale camera pose
+const _ftgt = new THREE.Vector3();
 
 
 
@@ -422,6 +579,8 @@ function animate(time) {
     // arrive: side view → directly behind, as the car nears the building.
     const blend = THREE.MathUtils.smoothstep(carZ, 0, BLEND_DIST);
     const arrive = THREE.MathUtils.smoothstep(carZ, ARRIVE_START, ARRIVE_END);
+    // finale: swing from rear-chase to the centred showcase view at station 3.
+    const finale = THREE.MathUtils.smoothstep(carZ, FINALE_START, FINALE_END);
 
     // --- car: straight line along the angled track, nose following it ---
     if (car) {
@@ -443,10 +602,21 @@ function animate(time) {
     _aim.lerpVectors(CAM_SIDE_AIM, CAM_REAR_AIM, arrive);
 
     _pos.set(carX + _off.x, 5, carZ + _off.z - 2);
-    camera.position.lerpVectors(HERO_POS, _pos, blend);
+    _pos.lerpVectors(HERO_POS, _pos, blend);
 
     _tgt.set(carX + _aim.x, _aim.y, carZ + _aim.z);
-    camera.lookAt(_tgt.lerpVectors(HERO_TGT, _tgt, blend));
+    _tgt.lerpVectors(HERO_TGT, _tgt, blend);
+
+    // finale: swing to a square-on view of the car's back. Positioning the
+    // camera along the car's heading (rather than the world z axis) keeps the
+    // rear dead-centre, so neither flank is visible.
+    _fpos.set(carX - FORWARD.x * FINALE_DIST, FINALE_HEIGHT, carZ - FORWARD.z * FINALE_DIST);
+    _ftgt.set(carX, FINALE_AIM_Y, carZ);
+    _pos.lerp(_fpos, finale);
+    _tgt.lerp(_ftgt, finale);
+
+    camera.position.copy(_pos);
+    camera.lookAt(_tgt);
 
     // --- hazards ---
     // Blink whenever the car is genuinely settled, wherever it stopped.

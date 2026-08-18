@@ -310,6 +310,23 @@ body {
     padding-left: 40vw;
 }
 
+#whatsnext {
+    justify-content: flex-start;
+    align-items: center;
+    max-width: none;
+    padding: 12vh 8vw 0;
+}
+
+.whatsnext-title {
+    font-family: 'Switzer', sans-serif;
+    font-weight: 900;
+    font-size: clamp(2.5rem, 3vw, 5rem);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    color: var(--graphite);
+    margin: 0;
+}
+
 .text-cont p {
     line-height: 0.5rem;
 }
