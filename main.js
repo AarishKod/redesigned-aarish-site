@@ -57,6 +57,7 @@ const ARRIVE_END = 40;
 const SCROLL_DAMPING = 0.06;     // lower = heavier, more trailing
 const MAX_WHEEL_SPEED = 4.5;     // world units/sec — caps apparent wheel speed
 const HAZARD_PERIOD = 500;       // ms per on/off phase (~1 Hz)
+const STOP_THRESHOLD = 0.02;     // |z change/frame| below this counts as stopped
 
 // --- building --------------------------------------------------------------
 const BUILDING_POS = new THREE.Vector3(-23, 4.13, 65);
@@ -74,7 +75,12 @@ const HAZARDS = ['Object_544', 'Object_510', 'Object_512'];
 
 
 // module scope
-const munichEl = document.querySelector('#munichre');
+// One entry per STATIONS index. null = always-visible hero, no reveal needed.
+const stationEls = [
+    null,                                   // 0 — hero, always visible
+    document.querySelector('#munichre'),    // 1
+    document.querySelector('#northeastern'),// 2
+];
 const REVEAL_RANGE = 12;          // units before/after the station
 
 
@@ -367,6 +373,8 @@ window.addEventListener('resize', () => {
 
 let carZ = 0;
 let prevZ = 0;
+let parkStart = 0;               // time the car last settled at a station
+let wasParked = false;
 let prevTime = 0;
 
 const _pos = new THREE.Vector3();   // scratch vectors, reused each frame
@@ -389,9 +397,11 @@ function animate(time) {
         : 0;
 
     carZ += (target - carZ) * SCROLL_DAMPING;
-    // in animate, after carZ updates
-    const dist = Math.abs(carZ - STATIONS[1]);
-    munichEl.classList.toggle('visible', dist < REVEAL_RANGE);
+    // reveal each station's overlay as the car passes near it
+    stationEls.forEach((el, i) => {
+        if (!el) return;
+        el.classList.toggle('visible', Math.abs(carZ - STATIONS[i]) < REVEAL_RANGE);
+    });
 
     const delta = carZ - prevZ;                     // change in z
     prevZ = carZ;
@@ -432,14 +442,20 @@ function animate(time) {
     _off.lerpVectors(CAM_SIDE_OFF, CAM_REAR_OFF, arrive);
     _aim.lerpVectors(CAM_SIDE_AIM, CAM_REAR_AIM, arrive);
 
-    _pos.set(carX + _off.x, 5, carZ + _off.z);
+    _pos.set(carX + _off.x, 5, carZ + _off.z - 2);
     camera.position.lerpVectors(HERO_POS, _pos, blend);
 
     _tgt.set(carX + _aim.x, _aim.y, carZ + _aim.z);
     camera.lookAt(_tgt.lerpVectors(HERO_TGT, _tgt, blend));
 
     // --- hazards ---
-    const lit = Math.floor(time / HAZARD_PERIOD) % 2 === 0;
+    // Blink whenever the car is genuinely settled, wherever it stopped.
+    const isParked = Math.abs(delta) < STOP_THRESHOLD;
+    // Restart the blink phase on arrival so the first flash lands as it settles.
+    if (isParked && !wasParked) parkStart = time;
+    wasParked = isParked;
+
+    const lit = isParked && Math.floor((time - parkStart) / HAZARD_PERIOD) % 2 === 0;
     lamps.hazards.forEach(m => m.material.emissiveIntensity = lit ? 5 : 0);
 
     renderer.render(scene, camera);

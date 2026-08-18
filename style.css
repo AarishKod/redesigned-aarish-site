@@ -287,14 +287,6 @@ body {
     justify-content: center;
     padding: 0 8vw;
     max-width: 46ch;
-    opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 600ms ease, transform 600ms ease;
-}
-
-.stop.visible {
-    opacity: 1;
-    transform: none;
 }
 
 .eyebrow {
@@ -305,22 +297,16 @@ body {
     margin-bottom: 1rem;
 }
 
-#munichre {
-  opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 500ms ease, transform 500ms ease;
-}
-#munichre.visible {
-  opacity: 1;
-  transform: none;
-}
-
 .mras {
     flex-direction: row-reverse;
     /* justify-content: space-between; */
 }
 
 #munichre {
+    padding-left: 40vw;
+}
+
+#northeastern {
     padding-left: 40vw;
 }
 
