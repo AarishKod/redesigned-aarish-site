@@ -11,7 +11,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 // ---------------------------------------------------------------------------
 
 const MODEL_PATH = 'models/o_model_opt.glb';
-const HDRI_PATH = 'models/ferndale_studio_01_4k.hdr';
+const HDRI_PATH = 'models/ferndale_studio_01_1k.hdr';
 const PRINCETON_BUILDING_PATH = 'models/low-poly_university.glb'
 
 // Track layout. Scroll progress maps onto 0 → TRACK_END in world units of z.
