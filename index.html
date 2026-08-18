@@ -17,44 +17,42 @@
     <nav class="nav">
         <a class="wordmark" href="#">Aarish Kodnaney</a>
 
-        <div class="pills">
-            <a class="pill is-active" href="#top">Overview</a>
-
-            <div class="menu-wrap">
-                <button class="pill has-menu" aria-expanded="false" aria-haspopup="true" aria-controls="exp-menu">
-                    Experience
-                    <svg class="chev" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M6 9l6 6 6-6" />
-                    </svg>
-                </button>
-
-                <div class="menu" id="exp-menu" role="menu">
-                    <a href="#munichre" role="menuitem">
-                        <span class="label">Munich Re</span>
-                        <span class="sub">Data engineering · Princeton, NJ</span>
-                    </a>
-                    <a href="#northeastern" role="menuitem">
-                        <span class="label">Northeastern</span>
-                        <span class="sub">CS and business · Boston, MA</span>
-                    </a>
-                </div>
-            </div>
-        </div>
-
         <div class="spacer"></div>
 
         <div class="right">
-            <a class="pill" href="https://github.com/aarishkod" target="_blank" rel="noopener">GitHub</a>
-            <a class="pill" href="https://linkedin.com/in/aarish-kodnaney" target="_blank" rel="noopener">LinkedIn</a>
+            <a class="pill is-active" id="contact-btn">Contact</a>
         </div>
     </nav>
+
+    <div class="modal-backdrop" id="contact-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="contact-title">
+            <button class="modal-close" id="contact-close" aria-label="Close">&times;</button>
+            <h2 id="contact-title">Contact</h2>
+            <p class="modal-row">
+                <span class="modal-label">Email</span>
+                <a href="mailto:kodnaney.a@northeastern.edu">kodnaney.a@northeastern.edu</a>
+            </p>
+            <p class="modal-row">
+                <span class="modal-label">Phone</span>
+                <a href="tel:+18604265570">+1 860-426-5570</a>
+            </p>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="munichre-modal" hidden>
+        <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="munichre-title">
+            <button class="modal-close" id="munichre-close" aria-label="Close">&times;</button>
+            <h2 id="munichre-title">Munich Re — Data Engineer Intern</h2>
+            <p class="modal-body">As a Data Engineer Intern at Munich Re, I worked across the data platform stack, combining Python, SQL, Databricks, and LLM-based tooling to make insurance data more accessible and observable. My flagship project was building and deploying a Databricks Genie space that let non-technical finance users query a 516M-row insurance lakehouse in natural language — it delivered on 45 target KPIs, and I documented the data-quality defects blocking 33 more. I also reverse-engineered an acquisition's undocumented database using LLM-assisted column-name matching and value-overlap scoring to reconstruct ER diagrams, shipping the results as DBML schema files and a Databricks visualization app for team-wide exploration. On the platform side, I developed a production Python logging package that routes structured logs to Azure Application Insights and Databricks Delta tables; published through JFrog Artifactory, it was adopted by 12% of new internal Python projects. Finally, I forked and extended the open-source OpenCode coding agent to authenticate against the firm's internal LLM gateway, giving select engineers experimental agentic coding capability, and presented the work to management as part of an evaluation of developer workflow improvements.</p>
+        </div>
+    </div>
 
     <div class="overlay">
         <section class="hero">
             <div class="img-cont">
                 <img class="profile" src="images/IMG_4883.jpeg" alt="">
             </div>
-            <div class="text-cont">
+            <div class="text-cont mr-cont">
                 <h1>Hi! I'm Aarish Kodnaney</h1>
                 <div class="hero-links">
                     <a class="pill is-active" href="https://github.com/aarishkod">GitHub</a>
@@ -65,17 +63,15 @@
         </section>
 
         <section class="stop" data-station="1" id="munichre">
-            <section class="hero">
+            <section class="hero mras">
             <div class="img-cont">
-                <img class="profile" src="images/IMG_4883.jpeg" alt="">
+                <img class="profile" src="images/munichre--600.png" alt="">
             </div>
             <div class="text-cont">
-                <h1>Hi! I'm Aarish Kodnaney</h1>
-                <div class="hero-links">
-                    <a class="pill is-active" href="https://github.com/aarishkod">GitHub</a>
-                    <a class="pill is-active" href="https://linkedin.com/in/aarish-kodnaney">LinkedIn</a>
-                    <a class="pill is-active" href="https://linkedin.com/in/aarish-kodnaney">Resume</a>
-                </div>
+                <h1 style="line-height: 50%;">Munich RE</h1>
+                <button class="pill is-active" id="munichre-btn" style="display: inline;">Learn More</button>
+                <p><b>Data Engineer Intern | Princeton, NJ</b></p>
+                <p><b>May 2026 - Present</b> (Accepted part-time fall extension)</p>
             </div>
         </section>
 
@@ -89,23 +85,47 @@
         const trigger = document.querySelector('.has-menu');
         const menu = document.getElementById('exp-menu');
 
-        function setOpen(open) {
-            menu.classList.toggle('is-open', open);
-            trigger.setAttribute('aria-expanded', String(open));
+        if (trigger && menu) {
+            const setOpen = (open) => {
+                menu.classList.toggle('is-open', open);
+                trigger.setAttribute('aria-expanded', String(open));
+            };
+
+            trigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setOpen(trigger.getAttribute('aria-expanded') !== 'true');
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!menu.contains(e.target)) setOpen(false);
+            });
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') { setOpen(false); trigger.focus(); }
+            });
         }
 
-        trigger.addEventListener('click', (e) => {
-            e.stopPropagation();
-            setOpen(trigger.getAttribute('aria-expanded') !== 'true');
-        });
+        // Modals
+        function wireModal(btnId, modalId, closeId) {
+            const btn = document.getElementById(btnId);
+            const modal = document.getElementById(modalId);
+            const close = document.getElementById(closeId);
+            if (!btn || !modal || !close) return;
 
-        document.addEventListener('click', (e) => {
-            if (!menu.contains(e.target)) setOpen(false);
-        });
+            const setOpen = (open) => { modal.hidden = !open; };
 
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') { setOpen(false); trigger.focus(); }
-        });
+            btn.addEventListener('click', () => setOpen(true));
+            close.addEventListener('click', () => setOpen(false));
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) setOpen(false);
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') setOpen(false);
+            });
+        }
+
+        wireModal('contact-btn', 'contact-modal', 'contact-close');
+        wireModal('munichre-btn', 'munichre-modal', 'munichre-close');
     </script>
 
     <script type="module" src="/main.js"></script>

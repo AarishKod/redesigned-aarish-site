@@ -9,6 +9,7 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 
 const MODEL_PATH = 'models/o_model.glb';
 const HDRI_PATH = 'models/ferndale_studio_01_4k.hdr';
+const PRINCETON_BUILDING_PATH = 'models/low-poly_university.glb'
 
 // Track layout. Scroll progress maps onto 0 → TRACK_END in world units of z.
 const STATIONS = [0, 40, 80];
@@ -70,6 +71,12 @@ const LOG_BUILDING_MESHES = false;   // flip on to re-measure the slab and footp
 //   Object_510 / 512 — front indicators
 const BAR = ['Object_524'];
 const HAZARDS = ['Object_544', 'Object_510', 'Object_512'];
+
+
+// module scope
+const munichEl = document.querySelector('#munichre');
+const REVEAL_RANGE = 12;          // units before/after the station
+
 
 // ---------------------------------------------------------------------------
 // Renderer
@@ -284,6 +291,42 @@ function buildWheels() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Low Poly Princeton Building
+// ---------------------------------------------------------------------------
+const gltfLoaderPrinceton = new GLTFLoader();
+
+function loadBuilding(path, { x = 0, z = 0, rotY = 0, scale = 0.1 } = {}) {
+    gltfLoaderPrinceton.load(
+        PRINCETON_BUILDING_PATH,
+        (gltf) => {
+            const model = gltf.scene;
+
+            model.scale.setScalar(scale);
+            model.rotation.y = rotY;
+            model.position.set(x, 0, z);
+
+            // Sit it on the ground regardless of where its origin was authored.
+            model.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(model);
+            model.position.y -= box.min.y;
+
+            model.traverse((child) => {
+                if (!child.isMesh) return;
+                child.castShadow = true;
+                child.receiveShadow = true;
+            });
+
+            scene.add(model);
+            console.log(path, 'size:',
+                box.getSize(new THREE.Vector3()).toArray().map(n => n.toFixed(1)));
+        },
+        undefined,
+        (err) => console.error(`${path} failed to load:`, err)
+    );
+}
+
+// loadBuilding('models/nassau_hall.glb', { x: -12, z: 40, rotY: Math.PI / 2 });
 
 // ---------------------------------------------------------------------------
 // Console helpers
@@ -331,6 +374,8 @@ const _tgt = new THREE.Vector3();
 const _off = new THREE.Vector3();
 const _aim = new THREE.Vector3();
 
+
+
 function animate(time) {
     // --- timing ---
     // Clamped so a backgrounded tab doesn't produce one enormous frame.
@@ -344,6 +389,9 @@ function animate(time) {
         : 0;
 
     carZ += (target - carZ) * SCROLL_DAMPING;
+    // in animate, after carZ updates
+    const dist = Math.abs(carZ - STATIONS[1]);
+    munichEl.classList.toggle('visible', dist < REVEAL_RANGE);
 
     const delta = carZ - prevZ;                     // change in z
     prevZ = carZ;
@@ -384,7 +432,7 @@ function animate(time) {
     _off.lerpVectors(CAM_SIDE_OFF, CAM_REAR_OFF, arrive);
     _aim.lerpVectors(CAM_SIDE_AIM, CAM_REAR_AIM, arrive);
 
-    _pos.set(carX + _off.x, _off.y, carZ + _off.z);
+    _pos.set(carX + _off.x, 5, carZ + _off.z);
     camera.position.lerpVectors(HERO_POS, _pos, blend);
 
     _tgt.set(carX + _aim.x, _aim.y, carZ + _aim.z);

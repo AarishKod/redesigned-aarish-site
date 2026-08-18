@@ -314,3 +314,109 @@ body {
   opacity: 1;
   transform: none;
 }
+
+.mras {
+    flex-direction: row-reverse;
+    /* justify-content: space-between; */
+}
+
+#munichre {
+    padding-left: 40vw;
+}
+
+.text-cont p {
+    line-height: 0.5rem;
+}
+/* ---------- contact modal ---------- */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(43, 41, 38, 0.35);
+}
+
+.modal-backdrop[hidden] {
+    display: none;
+}
+
+.modal {
+    position: relative;
+    width: min(90vw, 420px);
+    padding: 32px 32px 24px;
+    background: var(--paper);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(43, 41, 38, 0.25);
+}
+
+.modal h2 {
+    margin: 0 0 20px;
+    font-size: 22px;
+    color: var(--graphite);
+}
+
+.modal-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    font-size: 24px;
+    line-height: 1;
+    color: var(--stone);
+    cursor: pointer;
+    transition: background 160ms ease, color 160ms ease;
+}
+
+.modal-close:hover {
+    background: rgba(43, 41, 38, 0.07);
+    color: var(--graphite);
+}
+
+.modal-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0 0 16px;
+    line-height: normal;
+}
+
+.modal-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--stone);
+}
+
+.modal-row a {
+    font-size: 16px;
+    color: var(--graphite);
+    text-decoration: none;
+}
+
+.modal-row a:hover {
+    color: var(--taillight);
+}
+
+.modal-wide {
+    width: min(92vw, 640px);
+}
+
+.modal-body {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--graphite);
+    max-height: 60vh;
+    overflow-y: auto;
+}
