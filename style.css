@@ -423,3 +423,78 @@ body {
     max-height: 60vh;
     overflow-y: auto;
 }
+
+/* ---------- loading screen ---------- */
+
+/* Covers everything, nav (z 100) and modals (z 200) included, until the car
+   model, the HDRI and the signage font have all arrived. */
+.loader {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    background: var(--paper);
+    opacity: 1;
+    transition: opacity 0.6s ease;
+}
+
+.loader.is-done {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.loader-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+}
+
+.loader-wordmark {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--graphite);
+    white-space: nowrap;
+}
+
+.loader-track {
+    width: min(420px, 60vw);
+    height: 2px;
+    background: var(--chalk);
+    overflow: hidden;
+}
+
+/* The transition is what smooths the gaps between xhr progress events — the
+   width is only rewritten when bytes actually land. */
+.loader-fill {
+    width: 0;
+    height: 100%;
+    background: var(--graphite);
+    transition: width 0.25s ease-out;
+}
+
+.loader-pct {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    color: var(--stone);
+}
+
+/* Scroll would drive the car down the track behind the overlay. Overflow on
+   body propagates to the viewport while html is visible, so this is enough. */
+body.is-loading {
+    overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .loader,
+    .loader-fill {
+        transition: none;
+    }
+}
