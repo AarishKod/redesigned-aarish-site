@@ -137,17 +137,141 @@ camera.lookAt(HERO_TGT);
 // swallows scroll events over the canvas.
 
 // ---------------------------------------------------------------------------
+// Loading
+// ---------------------------------------------------------------------------
+
+// A reload must not restore mid-page scroll: the render loop maps scrollY onto
+// carZ, so a restored offset would start the car part-way down the track,
+// out of frame, behind the loading overlay.
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+window.scrollTo(0, 0);
+
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Intro: the car settles into its hero pose as the overlay dissolves.
+const INTRO_MS = 1600;
+const INTRO_YAW = 0.25;          // extra radians of yaw to unwind
+const INTRO_DOLLY = 2.5;         // world units the camera pulls in by
+const INTRO_LIFT = 1.2;          // world units the camera drops by
+let introStart = null;
+
+// LoadingManager.onProgress reports ITEM COUNTS, not bytes — with three assets
+// the bar would step 0 -> 33 -> 66 -> 100 and sit frozen in between. So the
+// percentage is driven from each loader's own xhr bytes, weighted by nominal
+// file size, and the manager is used only to orchestrate the reveal.
+const ASSETS = {
+    car: { weight: 3559080, p: 0 },
+    hdri: { weight: 1632708, p: 0 },
+    font: { weight: 109250, p: 0 },
+};
+const WEIGHT_TOTAL = Object.values(ASSETS).reduce((sum, a) => sum + a.weight, 0);
+
+const loaderEl = document.getElementById('loader');
+const loaderFillEl = document.getElementById('loader-fill');
+const loaderPctEl = document.getElementById('loader-pct');
+
+let shownProgress = 0;
+let revealed = false;
+
+// Bounds only the ASYNC tail of compileAsync — the driver readiness poll.
+// The compile itself is synchronous on the main thread and cannot be
+// preempted by a timer, so this is a guard against a driver that never
+// reports ready, not a cap on compile cost. Measured ~100ms on an M1.
+const COMPILE_BUDGET_MS = 2500;
+
+function paintProgress() {
+    const p = Object.values(ASSETS)
+        .reduce((sum, a) => sum + a.p * a.weight, 0) / WEIGHT_TOTAL;
+
+    // Monotonic: a wrong Content-Length must never walk the bar backwards.
+    shownProgress = Math.max(shownProgress, p);
+    const pct = Math.round(shownProgress * 100);
+
+    if (loaderFillEl) loaderFillEl.style.width = `${(shownProgress * 100).toFixed(1)}%`;
+    if (loaderPctEl) loaderPctEl.textContent = `${pct}%`;
+    if (loaderEl) loaderEl.setAttribute('aria-valuenow', String(pct));
+}
+
+function trackBytes(key) {
+    return (xhr) => {
+        const asset = ASSETS[key];
+        asset.p = xhr.total
+            ? xhr.loaded / xhr.total
+            // No Content-Length (a gzipped .hdr does this). Creep toward 0.9
+            // so a missing header degrades instead of freezing the bar.
+            : asset.p + (0.9 - asset.p) * 0.08;
+        paintProgress();
+    };
+}
+
+function reveal() {
+    if (revealed) return;
+    revealed = true;
+
+    const start = () => {
+        document.body.classList.remove('is-loading');
+
+        if (loaderEl) {
+            loaderEl.classList.add('is-done');
+            // Timer rather than transitionend: under reduced motion the
+            // transition is removed, so transitionend would never fire.
+            setTimeout(() => { loaderEl.hidden = true; }, REDUCED_MOTION ? 0 : 700);
+        }
+
+        if (!REDUCED_MOTION) {
+            // The light bar flicks on part-way through the intro.
+            lamps.bar.forEach(m => { m.material.emissiveIntensity = 0; });
+            introStart = performance.now();
+        }
+    };
+
+    // Warms the shaders for the model's embedded textures, so the first frame
+    // the visitor actually sees doesn't hitch.
+    const warm = renderer.compileAsync
+        ? renderer.compileAsync(scene, camera)
+        : Promise.resolve();
+
+    // Reveal anyway if the readiness poll never resolves; worst case is a
+    // brief hitch on the first frame, which beats a stranded overlay. start is
+    // passed as both handlers so a rejection cannot strand it either.
+    Promise.race([
+        warm,
+        new Promise(resolve => setTimeout(resolve, COMPILE_BUDGET_MS)),
+    ]).then(start, start);
+}
+
+// A permanently stalled asset must never trap the visitor behind an opaque
+// overlay.
+setTimeout(reveal, 20000);
+
+const manager = new THREE.LoadingManager();
+
+manager.onLoad = () => {
+    Object.values(ASSETS).forEach(a => { a.p = 1; });
+    paintProgress();
+    reveal();
+};
+
+// Deliberately does not reveal. A failing loader still calls itemEnd, so
+// onLoad above fires once everything settles and handles the reveal — whereas
+// revealing here would tear the overlay away mid-download of the other
+// assets. The watchdog covers the case where nothing settles at all.
+manager.onError = (url) => {
+    console.error('Asset failed to load:', url);
+};
+
+// ---------------------------------------------------------------------------
 // Environment
 // ---------------------------------------------------------------------------
 
-new RGBELoader().load(
+new RGBELoader(manager).load(
     HDRI_PATH,
     (hdr) => {
         hdr.mapping = THREE.EquirectangularReflectionMapping;
         scene.environment = hdr;
         // Background stays flat Paper — only reflections come from the HDRI.
     },
-    undefined,
+    trackBytes('hdri'),
     (err) => console.error('HDRI failed to load:', err)
 );
 
@@ -215,7 +339,7 @@ let carGroundY = 0;              // y offset that sits the car on the floor
 const lamps = { bar: [], hazards: [] };
 const wheels = [];
 
-new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(
+new GLTFLoader(manager).setMeshoptDecoder(MeshoptDecoder).load(
     MODEL_PATH,
     (gltf) => {
         car = gltf.scene;
@@ -252,11 +376,7 @@ new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load(
         // position and rotation applied and the car in the scene graph.
         buildWheels();
     },
-    (xhr) => {
-        if (xhr.total) {
-            console.log(`car ${((xhr.loaded / xhr.total) * 100).toFixed(0)}% loaded`);
-        }
-    },
+    trackBytes('car'),
     (err) => console.error('Model failed to load:', err)
 );
 
@@ -358,7 +478,7 @@ function loadBuilding(path, { x = 0, z = 0, rotY = 0, scale = 0.1 } = {}) {
 const FINALE_CAR_X = TRACK_END * TRACK_LATERAL;
 const FINALE_CAR_Z = TRACK_END;
 
-new FontLoader().load(
+new FontLoader(manager).load(
     '/fonts/Switzer_Black.json',
     (font) => {
         const geo = new TextGeometry('NUImpact', {
@@ -398,7 +518,7 @@ new FontLoader().load(
 
         scene.add(sign);
     },
-    undefined,
+    trackBytes('font'),
     (err) => console.error('Font failed to load:', err)
 );
 
@@ -618,6 +738,30 @@ function animate(time) {
 
     camera.position.copy(_pos);
     camera.lookAt(_tgt);
+
+    // --- intro ---
+    // Runs once, as the loading overlay dissolves. Applied on top of the pose
+    // above rather than before it, because the scroll camera and the car's
+    // heading are both rewritten every frame. Weighting by (1 - blend) lets
+    // the intro bow out if the visitor scrolls before it finishes, instead of
+    // fighting the chase cam for the same properties.
+    if (introStart !== null) {
+        const it = Math.min((time - introStart) / INTRO_MS, 1);
+        const ease = 1 - Math.pow(1 - it, 3);
+        const w = (1 - ease) * (1 - blend);
+
+        if (car) car.rotation.y += w * INTRO_YAW;
+
+        camera.position.y += w * INTRO_LIFT;
+        camera.translateZ(w * INTRO_DOLLY);   // local +z is behind the camera
+        camera.lookAt(_tgt);
+
+        // Only the bar lamps. The hazards are driven below, every frame.
+        const barLit = 1.5 * THREE.MathUtils.smoothstep(ease, 0.35, 0.7);
+        lamps.bar.forEach(m => { m.material.emissiveIntensity = barLit; });
+
+        if (it === 1) introStart = null;
+    }
 
     // --- hazards ---
     // Blink whenever the car is genuinely settled, wherever it stopped.

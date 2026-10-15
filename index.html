@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="utf-8">
-    <title>My first three.js app</title>
+    <title>Aarish Kodnaney</title>
     <style>
         body {
             margin: 0;
@@ -13,7 +13,7 @@
 
 </head>
 
-<body>
+<body class="is-loading">
     <nav class="nav">
         <a class="wordmark" href="#">Aarish Kodnaney</a>
 
@@ -55,6 +55,17 @@
         </div>
     </div>
 
+    <div class="loader" id="loader" role="progressbar"
+        aria-label="Loading scene" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="loader-inner">
+            <p class="loader-wordmark">Aarish Kodnaney</p>
+            <div class="loader-track">
+                <div class="loader-fill" id="loader-fill"></div>
+            </div>
+            <p class="loader-pct" id="loader-pct">0%</p>
+        </div>
+    </div>
+
     <div class="overlay">
         <section class="hero">
             <div class="img-cont">
@@ -65,7 +76,7 @@
                 <div class="hero-links">
                     <a class="pill is-active" href="https://github.com/aarishkod">GitHub</a>
                     <a class="pill is-active" href="https://linkedin.com/in/aarish-kodnaney">LinkedIn</a>
-                    <a class="pill is-active" href="./subpages/external-documents/resume.pdf">Resume</a>
+                    <a class="pill is-active" href="./subpages/resume.pdf">Resume</a>
                 </div>
             </div>
         </section>
