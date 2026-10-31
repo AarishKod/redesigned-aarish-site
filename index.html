@@ -3,6 +3,8 @@
 
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#FCFBF8">
     <title>Aarish Kodnaney</title>
     <style>
         body {
@@ -69,14 +71,23 @@
     <div class="overlay">
         <section class="hero">
             <div class="img-cont">
-                <img class="profile" src="images/IMG_4883.jpeg" alt="">
+                <img class="profile" src="images/aarish-448.jpg"
+                    srcset="images/aarish-224.jpg 224w,
+                            images/aarish-448.jpg 448w,
+                            images/aarish-672.jpg 672w"
+                    sizes="(max-width: 767px) 72px, 240px"
+                    alt="Aarish Kodnaney" width="448" height="448" decoding="async">
             </div>
             <div class="text-cont mr-cont">
-                <h1>Hi! I'm Aarish Kodnaney</h1>
-                <div class="hero-links">
-                    <a class="pill is-active" href="https://github.com/aarishkod">GitHub</a>
-                    <a class="pill is-active" href="https://linkedin.com/in/aarish-kodnaney">LinkedIn</a>
-                    <a class="pill is-active" href="./subpages/resume.pdf">Resume</a>
+                <div class="sec-top">
+                    <h1>Hi! I'm Aarish Kodnaney</h1>
+                </div>
+                <div class="sec-bot">
+                    <div class="hero-links">
+                        <a class="pill is-active" href="https://github.com/aarishkod">GitHub</a>
+                        <a class="pill is-active" href="https://linkedin.com/in/aarish-kodnaney">LinkedIn</a>
+                        <a class="pill is-active" href="./subpages/resume.pdf">Resume</a>
+                    </div>
                 </div>
             </div>
         </section>
@@ -84,13 +95,18 @@
         <section class="stop" data-station="1" id="munichre">
             <section class="hero mras">
                 <div class="img-cont">
-                    <img class="profile" src="images/munichre--600.png" alt="">
+                    <img class="profile" src="images/munichre--600.png" alt="Munich Re"
+                        width="600" height="600" loading="lazy" decoding="async">
                 </div>
                 <div class="text-cont">
-                    <h1 style="line-height: 50%;">Munich RE</h1>
-                    <button class="pill is-active" id="munichre-btn" style="display: inline;">Learn More</button>
-                    <p><b>Data Engineer Intern | Princeton, NJ</b></p>
-                    <p><b>May 2026 - Present</b> (Accepted part-time fall extension)</p>
+                    <div class="sec-top">
+                        <h1>Munich RE</h1>
+                    </div>
+                    <div class="sec-bot">
+                        <button class="pill is-active" id="munichre-btn">Learn More</button>
+                        <p><b>Data Engineer Intern | Princeton, NJ</b></p>
+                        <p><b>May 2026 - Present</b> (Accepted part-time fall extension)</p>
+                    </div>
                 </div>
             </section>
         </section>
@@ -98,18 +114,30 @@
         <section class="stop" data-station="2" id="northeastern">
             <section class="hero mras">
                 <div class="img-cont">
-                    <img class="profile" src="images/northeastern.png" alt="">
+                    <img class="profile" src="images/northeastern.png" alt="Northeastern University"
+                        width="1024" height="1024" loading="lazy" decoding="async">
                 </div>
                 <div class="text-cont">
-                    <h1 style="">Northeastern University</h1>
-                    <p><b>B.S. in Computer Science and Finance | Boston, MA</b></p>
-                    <p><b>September 2025 - May 2029</b></p>
+                    <div class="sec-top">
+                        <h1>Northeastern University</h1>
+                    </div>
+                    <div class="sec-bot">
+                        <p><b>B.S. in Computer Science and Finance | Boston, MA</b></p>
+                        <p><b>September 2025 - May 2029</b></p>
+                    </div>
                 </div>
             </section>
         </section>
 
         <section class="stop" data-station="3" id="whatsnext">
-            <h1 style="margin-top: 10vh;" class="whatsnext-title">What's Next?</h1>
+            <div class="sec-top">
+                <h1 class="whatsnext-title">What's Next?</h1>
+            </div>
+            <div class="sec-bot">
+                <p class="whatsnext-role"><b>Rotational Associate</b></p>
+                <p class="whatsnext-blurb">Northeastern's student-run impact investing VC fund
+                    with $600k AUM</p>
+            </div>
         </section>
     </div>
     <script>
@@ -143,7 +171,13 @@
             const close = document.getElementById(closeId);
             if (!btn || !modal || !close) return;
 
-            const setOpen = (open) => { modal.hidden = !open; };
+            // The document scroll drives carZ, so an open modal must not let
+            // the page move underneath it.
+            const setOpen = (open) => {
+                modal.hidden = !open;
+                document.body.classList.toggle('modal-open', open);
+                (open ? close : btn).focus();
+            };
 
             btn.addEventListener('click', () => setOpen(true));
             close.addEventListener('click', () => setOpen(false));
@@ -151,7 +185,7 @@
                 if (e.target === modal) setOpen(false);
             });
             document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') setOpen(false);
+                if (e.key === 'Escape' && !modal.hidden) setOpen(false);
             });
         }
 

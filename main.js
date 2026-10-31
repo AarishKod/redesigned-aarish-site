@@ -36,21 +36,27 @@ const TRACK_LEN = TRACK_DIR.length();               // > 1 on a diagonal
 // angle, and the two blend over BLEND_DIST.
 const DRIVE_HEADING = Math.atan2(TRACK_DIR.x, TRACK_DIR.z);
 const HERO_HEADING = -Math.PI / 10;
+const INTRO_YAW = 0.25;           // extra radians of yaw the intro unwinds
 
 // --- camera ----------------------------------------------------------------
-// Absolute framing at rest, before the chase cam takes over.
-const HERO_POS = new THREE.Vector3(2.5, 6, -10);
-const HERO_TGT = new THREE.Vector3(2.5, 0.75, 0);
 const BLEND_DIST = 8;            // world units over which the hero handoff happens
 
-// Chase offsets, expressed RELATIVE TO THE CAR. Keeping them relative is what
-// holds the framing distance constant — absolute x would let the gap grow as
-// the car drifts laterally.
-const CAM_SIDE_OFF = new THREE.Vector3(8, 3, -10);
-const CAM_SIDE_AIM = new THREE.Vector3(-7, 0.75, 0);
-
-const CAM_REAR_OFF = new THREE.Vector3(0, 2.2, -9);
-const CAM_REAR_AIM = new THREE.Vector3(-3, 0.75, 0);
+// three.js holds the VERTICAL fov fixed, so a narrow viewport collapses the
+// horizontal field rather than the vertical one: fov 35 at a 430x932 aspect
+// yields hFov 16.6 deg, at which the car measures 107% of frame width and is
+// cropped off BOTH edges. A profile may therefore specify a HORIZONTAL field
+// and have the vertical one derived from the live aspect.
+//
+// The clamp guards both ends: above ~62 deg an ultra-tall phone starts showing
+// edge distortion plus two slabs of flat background with no horizon to break
+// them; below 40 deg a tablet-ish portrait aspect pushes the car's silhouette
+// taller than the CSS band can hold.
+function resolveFov(spec, aspect) {
+    if (spec.mode === 'vertical') return spec.deg;
+    const h = THREE.MathUtils.degToRad(spec.deg);
+    const v = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(h / 2) / aspect));
+    return THREE.MathUtils.clamp(v, spec.min, spec.max);
+}
 
 // Where the swing from side view to rear view starts and finishes, in world z.
 // Ends short of TRACK_END because damping means carZ only ever approaches it.
@@ -64,14 +70,135 @@ const FINALE_END = 116;
 // The finale camera is placed along the car's OWN heading, not the world z axis,
 // so the rear faces us dead-on and no flank shows. FORWARD is the unit heading.
 const FORWARD = TRACK_DIR.clone().normalize();
-const FINALE_DIST = 14;          // how far behind the car the camera sits
-const FINALE_HEIGHT = 7;         // camera elevation at the finale
-const FINALE_AIM_Y = 0.9;        // look at the car's mid-height, so it's centred
+// --- view profiles ---------------------------------------------------------
+// Pure camera framing: swapping one costs nothing, so these are re-selected on
+// resize. Anything baked into GPU state lives in TIER instead, further down.
+//
+// Offsets are RELATIVE TO THE CAR. Keeping them relative is what holds the
+// framing distance constant — absolute x would let the gap grow as the car
+// drifts laterally down the angled track.
+const VIEW_DESKTOP = {
+    id: 'desktop',
+    fov: { mode: 'vertical', deg: 35 },
 
-const SCROLL_DAMPING = 0.06;     // lower = heavier, more trailing
+    heroPos: new THREE.Vector3(2.5, 6, -10),
+    heroTgt: new THREE.Vector3(2.5, 0.75, 0),
+
+    // y is 5 and z carries a -2 that used to be applied inline in the loop:
+    // the lerped offset y was computed and then thrown away in favour of a
+    // literal 5, and `lerp(a, b, t) - 2 === lerp(a - 2, b - 2, t)`. Folding
+    // both in here is algebraically identical and makes the constants honest.
+    sideOff: new THREE.Vector3(8, 5, -12),
+    sideAim: new THREE.Vector3(-7, 0.75, 0),
+    rearOff: new THREE.Vector3(0, 5, -11),
+    rearAim: new THREE.Vector3(-3, 0.75, 0),
+
+    finaleDist: 14,              // how far behind the car the camera sits
+    finaleHeight: 7,             // camera elevation at the finale
+    finaleAimY: 0.9,             // look at the car's mid-height, so it's centred
+
+    signOffset: new THREE.Vector3(5, 0, 5),
+    signShadow: true,            // stands on the ground, so the shadow anchors it
+    cardMode: 'ground',
+
+    heroHeading: HERO_HEADING,   // car turned toward the viewer at the hero
+    introYaw: INTRO_YAW,
+
+    introDolly: 2.5,
+    introLift: 1.2,
+};
+
+// Solved against the model's measured bounding box (L 4.642 x W 2.027 x
+// H 1.418, centred on x) so the car's silhouette lands inside the CSS band at
+// every stop, on aspects from 0.45 to 0.53. The aims sit at x = 0, i.e. ON the
+// car, which is what centres it — desktop deliberately aims to one side to
+// leave room for text, and that is exactly what breaks in portrait.
+//
+// Less flank than desktop, not more: in a narrow frame a rear-on car is
+// narrower and can therefore sit closer and read bigger.
+// Stations 1 and 2 share the FINALE's pose, so the camera is square-on to the
+// car's rear there and does not move from station 1 all the way through the
+// finale. Hoisted and referenced twice rather than typed twice: if the two
+// drifted apart the finale swing would stop being a no-op and the camera would
+// lurch at carZ 90.
+const P_FIN_DIST = 11.88, P_FIN_HEIGHT = 5.57, P_FIN_AIM_Y = 1.48;
+const P_REAR_OFF = new THREE.Vector3(
+    -FORWARD.x * P_FIN_DIST, P_FIN_HEIGHT, -FORWARD.z * P_FIN_DIST);
+const P_REAR_AIM = new THREE.Vector3(0, P_FIN_AIM_Y, 0);
+
+const VIEW_PORTRAIT = {
+    id: 'portrait',
+    fov: { mode: 'horizontal', deg: 28, min: 40, max: 62 },
+
+    // The hero and the transitional side shot both reuse the station pose, so
+    // on mobile the camera holds one angle on the car from the very first
+    // frame to the finale: every blend in the loop lerps between equal values.
+    // The car sits at the origin at the hero, so its absolute pose is simply
+    // the station offset and aim.
+    heroPos: P_REAR_OFF.clone(),
+    heroTgt: P_REAR_AIM.clone(),
+    sideOff: P_REAR_OFF.clone(),
+    sideAim: P_REAR_AIM.clone(),
+
+    // Derived from the finale, which is what makes stations 1, 2 and 3 share
+    // one pose. The old value pointed straight down WORLD -z while the car
+    // drives down a track angled by DRIVE_HEADING, so the camera sat 10.2 deg
+    // off the car's own axis — that was the sliver of flank on show.
+    rearOff: P_REAR_OFF.clone(),
+    rearAim: P_REAR_AIM.clone(),
+
+    finaleDist: P_FIN_DIST,
+    finaleHeight: P_FIN_HEIGHT,
+    finaleAimY: P_FIN_AIM_Y,     // above the car's mid-height, which pushes the
+                                 // car low and clears room for the sign above
+
+    // On the view axis BEYOND the car and lifted into a gantry. The finale
+    // camera looks DOWN, so a more distant object at the same height appears
+    // higher in frame — which is what gets the sign above the car without
+    // moving the camera. The desktop placement is 5.8 units to the car's RIGHT
+    // (the old comment claimed left), which lands at NDC x 1.29 in portrait.
+    // y calibrated in-page: at 2.50 the sign's cap collided with the HTML
+    // "What's Next?" headline (measured gap -0.001 of viewport height).
+    signOffset: new THREE.Vector3(-1.05, 1.90, 5.82),
+
+    // Airborne, so there is nothing for a shadow to sit on: a 6.6-unit-wide
+    // text lifted clear of the ground casts a soft smear that reaches the
+    // frame edge and reads as a smudge rather than as signage.
+    signShadow: false,
+
+    // A PlaneGeometry(7,4) lying flat is seen at a ~19 deg grazing angle: its
+    // 4 units of depth foreshorten to 1.3 against 7 of width, a 5.6:1
+    // letterbox of body text overlapping both car and sign. The copy lives in
+    // #whatsnext as real HTML instead.
+    cardMode: 'off',
+
+    // The car already faces down the track at the hero, and the intro adds no
+    // yaw, so together with the shared camera pose above nothing about the
+    // car's angle on screen changes from load to the finale.
+    heroHeading: DRIVE_HEADING,
+    introYaw: 0,
+
+    introDolly: 1.8,
+    introLift: 0.9,
+};
+
+// Classification, not raw aspect: an iOS URL-bar collapse moves innerHeight by
+// ~90px, which would flip an aspect threshold but must never swap framing.
+const viewKeyOf = (w, h) => (h >= w && w <= 820) ? 'portrait' : 'wide';
+const pickView = (w, h) => viewKeyOf(w, h) === 'portrait' ? VIEW_PORTRAIT : VIEW_DESKTOP;
+
+let VIEW = pickView(window.innerWidth, window.innerHeight);
+
+// Matching the old per-frame lerp at 60Hz: it retained (1 - 0.06) of the error
+// each FRAME, so the choreography ran at half its intended half-life on a
+// 120Hz display and slower still when throttled.
+//     exp(-(1/60) / tau) = 0.94  ->  tau = 0.2694
+const SCROLL_TAU = 0.269;        // seconds; larger = heavier, more trailing
 const MAX_WHEEL_SPEED = 4.5;     // world units/sec — caps apparent wheel speed
 const HAZARD_PERIOD = 500;       // ms per on/off phase (~1 Hz)
-const STOP_THRESHOLD = 0.02;     // |z change/frame| below this counts as stopped
+const STOP_SPEED = 1.2;          // world units/SEC below this counts as stopped
+                                 // (= the old 0.02/frame x 60, but frame-rate
+                                 // independent now that damping is dt-scaled)
 
 // --- building --------------------------------------------------------------
 const BUILDING_POS = new THREE.Vector3(-23, 4.13, 65);
@@ -96,15 +223,49 @@ const stationEls = [
     document.querySelector('#northeastern'),// 2
     document.querySelector('#whatsnext'),   // 3
 ];
-const REVEAL_RANGE = 12;          // units before/after the station
+// Half the station spacing, so the reveal windows tile the track exactly: one
+// station lit at a time, no gap and no overlap. At 12 a station went dark
+// while its section was still fully on screen.
+const REVEAL_RANGE = 20;          // units before/after the station
 
+
+// ---------------------------------------------------------------------------
+// Render tier
+// ---------------------------------------------------------------------------
+
+// Decided ONCE at boot and never revisited. Everything here is baked into GPU
+// state — the light count determines every MeshStandardMaterial shader
+// program, and the shadow map size allocates an FBO — so re-deciding on resize
+// would mean a full shader recompile mid-scroll and would invalidate the
+// programs reveal()'s compileAsync warmed.
+const IS_TOUCH = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+// screen.* rather than innerWidth: rotation-invariant and immune to the URL bar.
+const SMALL_SCREEN = Math.min(window.screen.width, window.screen.height) <= 500;
+const TIER = (IS_TOUCH && SMALL_SCREEN) ? 'mobile' : 'desktop';
+
+// The old line MULTIPLIED device pixel ratio rather than capping it, so a
+// DPR-3 phone rendered at 3x native with antialias and 2048 soft shadows.
+const DPR_CAP = TIER === 'mobile' ? 2 : 3;
+const DPR_SCALE = TIER === 'mobile' ? 1 : 1.5;
+const dprFor = () => Math.min(window.devicePixelRatio * DPR_SCALE, DPR_CAP);
+
+// 40/1024 = 3.9cm per texel, exactly matching desktop's 80/2048 — identical
+// world-space softness for a quarter of the memory and a quarter of the
+// shadow-pass work. The tighter extent is safe because the building that the
+// original +-40 frustum was sized for is never loaded.
+const SHADOW = TIER === 'mobile'
+    ? { size: 1024, extent: 20, near: 1, far: 40 }
+    : { size: 2048, extent: 40, near: 0.5, far: 500 };
 
 // ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio * 1.5, 3));
+const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    powerPreference: TIER === 'mobile' ? 'default' : 'high-performance',
+});
+renderer.setPixelRatio(dprFor());
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -124,13 +285,13 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xfcfbf8);
 
 const camera = new THREE.PerspectiveCamera(
-    35,
+    resolveFov(VIEW.fov, window.innerWidth / window.innerHeight),
     window.innerWidth / window.innerHeight,
     0.1,
     1000
 );
-camera.position.copy(HERO_POS);
-camera.lookAt(HERO_TGT);
+camera.position.copy(VIEW.heroPos);
+camera.lookAt(VIEW.heroTgt);
 
 // No OrbitControls. The camera is fully derived from scroll position, and
 // orbit controls keep a wheel listener attached even when disabled — which
@@ -150,9 +311,9 @@ const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').mat
 
 // Intro: the car settles into its hero pose as the overlay dissolves.
 const INTRO_MS = 1600;
-const INTRO_YAW = 0.25;          // extra radians of yaw to unwind
-const INTRO_DOLLY = 2.5;         // world units the camera pulls in by
-const INTRO_LIFT = 1.2;          // world units the camera drops by
+// dolly and lift now come from the view profile — portrait needs a shorter
+// move, because the same world-unit dolly reads as a much larger gesture in a
+// narrower frame.
 let introStart = null;
 
 // LoadingManager.onProgress reports ITEM COUNTS, not bytes — with three assets
@@ -284,11 +445,13 @@ new RGBELoader(manager).load(
 const key = new THREE.DirectionalLight(0xffffff, 0.8);
 key.position.set(5, 10, 7.5);
 key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.top = 40;
-key.shadow.camera.bottom = -40;
-key.shadow.camera.left = -40;
-key.shadow.camera.right = 40;
+key.shadow.mapSize.set(SHADOW.size, SHADOW.size);
+key.shadow.camera.top = SHADOW.extent;
+key.shadow.camera.bottom = -SHADOW.extent;
+key.shadow.camera.left = -SHADOW.extent;
+key.shadow.camera.right = SHADOW.extent;
+key.shadow.camera.near = SHADOW.near;
+key.shadow.camera.far = SHADOW.far;
 key.shadow.radius = 8;
 scene.add(key);
 
@@ -298,19 +461,31 @@ key.target = new THREE.Object3D();
 scene.add(key.target);
 
 // Fills the camera-facing side, which the key light rakes past.
-const fill = new THREE.DirectionalLight(0xffffff, 1.5);
+const fill = new THREE.DirectionalLight(0xffffff, TIER === 'mobile' ? 1.9 : 1.5);
 fill.position.set(0, 3, -10);
 scene.add(fill);
 
 // Strip softboxes down each flank. These produce the long specular highlight
 // along the bodyline. RectAreaLight does not cast shadows.
-RectAreaLightUniformsLib.init();
+//
+// Two area lights are evaluated per fragment and are by far the most expensive
+// lights in the scene, so mobile trades them for a cheap directional rim and a
+// slightly stronger fill. The bodyline highlight is softer, but the frame cost
+// is a fraction. This must stay ABOVE reveal()'s compileAsync, or the warmed
+// shader programs would not match the ones actually used.
+if (TIER === 'mobile') {
+    const rim = new THREE.DirectionalLight(0xffffff, 0.9);
+    rim.position.set(6, 4, -2);
+    scene.add(rim);
+} else {
+    RectAreaLightUniformsLib.init();
 
-for (const x of [3, -3]) {
-    const strip = new THREE.RectAreaLight(0xffffff, 6, 6, 0.5);
-    strip.position.set(x, 2.5, 0);
-    strip.lookAt(0, 0.75, 0);
-    scene.add(strip);
+    for (const x of [3, -3]) {
+        const strip = new THREE.RectAreaLight(0xffffff, 6, 6, 0.5);
+        strip.position.set(x, 2.5, 0);
+        strip.lookAt(0, 0.75, 0);
+        scene.add(strip);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +545,7 @@ new GLTFLoader(manager).setMeshoptDecoder(MeshoptDecoder).load(
         });
 
         scene.add(car);
-        car.rotation.y = HERO_HEADING;
+        car.rotation.y = VIEW.heroHeading;
 
         // Must run last: reads world-space boxes, so it needs the final
         // position and rotation applied and the car in the scene graph.
@@ -478,6 +653,22 @@ function loadBuilding(path, { x = 0, z = 0, rotY = 0, scale = 0.1 } = {}) {
 const FINALE_CAR_X = TRACK_END * TRACK_LATERAL;
 const FINALE_CAR_Z = TRACK_END;
 
+// Both props are built inside async loader callbacks, so without module-level
+// handles a profile swap physically could not move them.
+let signMesh = null;
+let cardGroup = null;
+
+function applyFinaleProps(view) {
+    if (signMesh) {
+        signMesh.position.set(
+            FINALE_CAR_X + view.signOffset.x,
+            view.signOffset.y,
+            FINALE_CAR_Z + view.signOffset.z);
+        signMesh.castShadow = view.signShadow;
+    }
+    if (cardGroup) cardGroup.visible = view.cardMode !== 'off';
+}
+
 new FontLoader(manager).load(
     '/fonts/Switzer_Black.json',
     (font) => {
@@ -504,17 +695,23 @@ new FontLoader(manager).load(
 
         const mat = new THREE.MeshStandardMaterial({
             color: 0xd0021b,        // --taillight
+            // Faded in on approach by the render loop. Lifting the sign for
+            // portrait put it above the horizon, where it was legible as a
+            // pink smudge behind the nav from two stations away.
+            transparent: true,
+            opacity: 0,
             // metalness: 0.1,
             // roughness: 0.5,
         });
 
         const sign = new THREE.Mesh(geo, mat);
-        sign.castShadow = true;
 
-        // Face the finale camera (aligned to the car's heading, like the card),
-        // stand upright on the ground, offset to the car's left.
+        // Face the finale camera, aligned to the car's heading like the card.
+        // Placement comes from the view profile: desktop sets it beside the
+        // car, portrait puts it on the view axis beyond the car and lifted.
         sign.rotation.y = Math.PI + DRIVE_HEADING;
-        sign.position.set(FINALE_CAR_X + 5, 0, FINALE_CAR_Z + 5);
+        signMesh = sign;
+        applyFinaleProps(VIEW);
 
         scene.add(sign);
     },
@@ -592,7 +789,7 @@ function makeInfoCard(title, body) {
     // A parent group handles the in-plane orientation: spinning about Y keeps the
     // panel flat while turning the text to read right-side up from the finale
     // camera (+Math.PI flips the near/far edge) and aligning it to the car's heading.
-    const cardGroup = new THREE.Group();
+    cardGroup = new THREE.Group();
     cardGroup.add(card);
     cardGroup.rotation.y = Math.PI + DRIVE_HEADING;
     // Sit just in front of the NUImpact text — toward the camera along −FORWARD —
@@ -605,14 +802,50 @@ function makeInfoCard(title, body) {
     scene.add(cardGroup);
 }
 
-makeInfoCard(
-    'Rotational Associate',
-    "Northeastern's student-run impact investing VC fund with $600k AUM"
-);
+// Guarded at TIER level so the 1024x586 canvas and its texture upload never
+// happen on a phone. The copy lives in #whatsnext as HTML there instead.
+if (TIER !== 'mobile') {
+    makeInfoCard(
+        'Rotational Associate',
+        "Northeastern's student-run impact investing VC fund with $600k AUM"
+    );
+}
 
 // ---------------------------------------------------------------------------
 // Console helpers
 // ---------------------------------------------------------------------------
+
+// Framing calibration. The portrait numbers are solved against the model's
+// measured bounding box, but the last few percent is a judgement call that
+// needs to be made on a real device — and edit-reload per pass is unworkable.
+//     setView({ finaleAimY: 1.6 })
+//     setView({ signOffset: [-1.05, 1.1, 5.82] })
+//
+// Vectors are taken as plain arrays on purpose: exposing THREE on window would
+// defeat tree-shaking and pull the whole library into the bundle (+136 kB).
+window.view = () => VIEW;
+window.setView = (patch) => {
+    for (const [k, v] of Object.entries(patch)) {
+        VIEW[k] = Array.isArray(v) ? new THREE.Vector3(...v) : v;
+    }
+    applyViewport(true);
+};
+// Screen-space extent of an object, as fractions from the top of the frame.
+window.screenBox = (obj) => {
+    if (!obj) return null;
+    const box = new THREE.Box3().setFromObject(obj);
+    const v = new THREE.Vector3();
+    let top = Infinity, bot = -Infinity, left = Infinity, right = -Infinity;
+    for (let i = 0; i < 8; i++) {
+        v.set(i & 1 ? box.max.x : box.min.x,
+              i & 2 ? box.max.y : box.min.y,
+              i & 4 ? box.max.z : box.min.z).project(camera);
+        top = Math.min(top, (1 - v.y) / 2); bot = Math.max(bot, (1 - v.y) / 2);
+        left = Math.min(left, v.x); right = Math.max(right, v.x);
+    }
+    return { top, bot, left, right };
+};
+window.parts = () => ({ car, sign: signMesh, card: cardGroup });
 
 // with the building loaded
 
@@ -637,11 +870,110 @@ window.flash = (name, color = 0x00ff00) => {
 // Resize
 // ---------------------------------------------------------------------------
 
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+let lastW = -1, lastH = -1, lastDpr = -1;
+let viewKey = viewKeyOf(window.innerWidth, window.innerHeight);
+let resizeTimer = 0;
+
+// Cached because the loop used to read document.body.scrollHeight EVERY FRAME:
+// a layout-dependent read inside the render loop.
+let scrollable = 0;
+
+function refreshScrollable() {
+    scrollable = Math.max(
+        document.documentElement.scrollHeight - window.innerHeight, 0);
+}
+
+// The CSS owns where the car sits on screen; this reads it back. Unitless
+// fractions, so parseFloat gets a clean number. getComputedStyle is called once
+// and the returned declaration is live, so this is a property read rather than
+// a restyle — cheap at resize cadence, not cheap per frame.
+const _rootStyle = getComputedStyle(document.documentElement);
+let bandTop = 0, bandBot = 1;
+
+function readBand() {
+    bandTop = parseFloat(_rootStyle.getPropertyValue('--band-top')) || 0;
+    const bot = parseFloat(_rootStyle.getPropertyValue('--band-bot'));
+    bandBot = Number.isFinite(bot) ? bot : 1;
+}
+
+function applyViewport(force = false) {
+    const w = window.innerWidth, h = window.innerHeight;
+    if (!force && w === lastW && h === lastH) return;   // iOS fires no-op resizes
+    lastW = w; lastH = h;
+
+    // Rebuilt only when the CLASSIFICATION flips. A URL-bar collapse keeps both
+    // (h >= w) and (w <= 820) true, so it never swaps the profile.
+    const key = viewKeyOf(w, h);
+    if (key !== viewKey || force) {
+        viewKey = key;
+        VIEW = pickView(w, h);
+        applyFinaleProps(VIEW);
+    }
+
+    // Gated: setPixelRatio reallocates the drawing buffer.
+    const dpr = dprFor();
+    if (dpr !== lastDpr) { lastDpr = dpr; renderer.setPixelRatio(dpr); }
+
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.fov = resolveFov(VIEW.fov, camera.aspect);
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    readBand();
+    refreshScrollable();
+    checkBand();
+}
+
+// The portrait camera offsets were SOLVED against this band, by projecting the
+// model's measured bounding box at every station. Retuning --band-top/--band-bot
+// in CSS therefore invalidates them: re-run the solver rather than nudging the
+// offsets by eye, or the car will drift out of the gap the layout leaves it.
+const SOLVED_BAND = [0.27, 0.72];
+let bandWarned = false;
+
+function checkBand() {
+    if (bandWarned || VIEW.id !== 'portrait') return;
+    if (Math.abs(bandTop - SOLVED_BAND[0]) < 1e-3 &&
+        Math.abs(bandBot - SOLVED_BAND[1]) < 1e-3) return;
+    bandWarned = true;
+    console.warn(
+        `[camera] CSS band is ${bandTop}..${bandBot} but the portrait camera ` +
+        `offsets were solved for ${SOLVED_BAND[0]}..${SOLVED_BAND[1]}. ` +
+        `The car may not sit in the gap the layout leaves for it.`);
+}
+
+// Debounced for renderer.setSize, which reallocates the colour and MSAA
+// buffers; iOS fires resize repeatedly DURING the bar's collapse animation,
+// which undebounced is one reallocation per frame. The canvas is CSS-stretched
+// for <=120ms meanwhile, which the horizontal-fov scheme makes imperceptible:
+// horizontal pixels-per-radian is width/hFov, and both are unchanged by the
+// bar moving, so the car's on-screen size does not shift at all.
+const scheduleApply = () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => applyViewport(), 120);
+};
+
+window.addEventListener('resize', scheduleApply);
+
+// iOS reports stale innerWidth/innerHeight immediately after a rotation.
+window.addEventListener('orientationchange', () => {
+    scheduleApply();
+    setTimeout(() => applyViewport(true), 350);
 });
+
+// Page height can change with no window resize at all: an image finally laying
+// out, a modal opening. Only `scrollable` cares.
+const overlayEl = document.querySelector('.overlay');
+if (overlayEl && 'ResizeObserver' in window) {
+    new ResizeObserver(refreshScrollable).observe(overlayEl);
+}
+
+applyViewport(true);
+
+// deliberately NOT visualViewport: the canvas is position:fixed, so it is laid
+// out against the LAYOUT viewport, which innerWidth/innerHeight track.
+// visualViewport shrinks under pinch-zoom and when a soft keyboard opens, so
+// the car would zoom when the contact modal's mailto link is focused.
 
 // ---------------------------------------------------------------------------
 // Render loop
@@ -669,12 +1001,20 @@ function animate(time) {
     prevTime = time;
 
     // --- scroll drives position along the track ---
-    const scrollable = document.body.scrollHeight - window.innerHeight;
     const target = scrollable > 0
         ? THREE.MathUtils.clamp(window.scrollY / scrollable, 0, 1) * TRACK_END
         : 0;
 
-    carZ += (target - carZ) * SCROLL_DAMPING;
+    // Exponential rather than a fixed per-frame fraction, so the choreography
+    // feels the same at 60Hz, at 120Hz, and when the GPU is throttled. At
+    // dt = 0 the factor is 0, matching the existing first-frame guard.
+    if (snapNext) {
+        carZ = target;
+        prevZ = target;
+        snapNext = false;
+    } else {
+        carZ += (target - carZ) * (1 - Math.exp(-dt / SCROLL_TAU));
+    }
     // reveal each station's overlay as the car passes near it
     stationEls.forEach((el, i) => {
         if (!el) return;
@@ -703,10 +1043,17 @@ function animate(time) {
     // finale: swing from rear-chase to the centred showcase view at station 3.
     const finale = THREE.MathUtils.smoothstep(carZ, FINALE_START, FINALE_END);
 
+    // The sign is meant to be REVEALED at the finale, so it fades in slightly
+    // ahead of the camera move rather than sitting on the horizon throughout.
+    if (signMesh) {
+        signMesh.material.opacity = THREE.MathUtils.smoothstep(carZ, 78, 102);
+        signMesh.visible = signMesh.material.opacity > 0.002;
+    }
+
     // --- car: straight line along the angled track, nose following it ---
     if (car) {
         car.position.set(carX, carGroundY, carZ);
-        car.rotation.y = THREE.MathUtils.lerp(HERO_HEADING, DRIVE_HEADING, blend);
+        car.rotation.y = THREE.MathUtils.lerp(VIEW.heroHeading, DRIVE_HEADING, blend);
     }
 
     // --- world follows the car ---
@@ -719,20 +1066,23 @@ function animate(time) {
     // --- camera ---
     // Offsets are relative to the car, so the framing distance stays constant
     // however far the car drifts laterally.
-    _off.lerpVectors(CAM_SIDE_OFF, CAM_REAR_OFF, arrive);
-    _aim.lerpVectors(CAM_SIDE_AIM, CAM_REAR_AIM, arrive);
+    _off.lerpVectors(VIEW.sideOff, VIEW.rearOff, arrive);
+    _aim.lerpVectors(VIEW.sideAim, VIEW.rearAim, arrive);
 
-    _pos.set(carX + _off.x, 5, carZ + _off.z - 2);
-    _pos.lerpVectors(HERO_POS, _pos, blend);
+    // _off.y is honoured now; it used to be computed and then discarded in
+    // favour of a literal 5, and the -2 on z is folded into the constants.
+    _pos.set(carX + _off.x, _off.y, carZ + _off.z);
+    _pos.lerpVectors(VIEW.heroPos, _pos, blend);
 
     _tgt.set(carX + _aim.x, _aim.y, carZ + _aim.z);
-    _tgt.lerpVectors(HERO_TGT, _tgt, blend);
+    _tgt.lerpVectors(VIEW.heroTgt, _tgt, blend);
 
     // finale: swing to a square-on view of the car's back. Positioning the
     // camera along the car's heading (rather than the world z axis) keeps the
     // rear dead-centre, so neither flank is visible.
-    _fpos.set(carX - FORWARD.x * FINALE_DIST, FINALE_HEIGHT, carZ - FORWARD.z * FINALE_DIST);
-    _ftgt.set(carX, FINALE_AIM_Y, carZ);
+    _fpos.set(carX - FORWARD.x * VIEW.finaleDist, VIEW.finaleHeight,
+        carZ - FORWARD.z * VIEW.finaleDist);
+    _ftgt.set(carX, VIEW.finaleAimY, carZ);
     _pos.lerp(_fpos, finale);
     _tgt.lerp(_ftgt, finale);
 
@@ -750,10 +1100,10 @@ function animate(time) {
         const ease = 1 - Math.pow(1 - it, 3);
         const w = (1 - ease) * (1 - blend);
 
-        if (car) car.rotation.y += w * INTRO_YAW;
+        if (car) car.rotation.y += w * VIEW.introYaw;
 
-        camera.position.y += w * INTRO_LIFT;
-        camera.translateZ(w * INTRO_DOLLY);   // local +z is behind the camera
+        camera.position.y += w * VIEW.introLift;
+        camera.translateZ(w * VIEW.introDolly);   // local +z is behind the camera
         camera.lookAt(_tgt);
 
         // Only the bar lamps. The hazards are driven below, every frame.
@@ -765,7 +1115,11 @@ function animate(time) {
 
     // --- hazards ---
     // Blink whenever the car is genuinely settled, wherever it stopped.
-    const isParked = Math.abs(delta) < STOP_THRESHOLD;
+    // Compared as a speed, not a per-frame delta: now that the damping is
+    // dt-correct the per-frame delta halves at 120Hz, which would trip the
+    // blink while the car was still moving at twice the intended speed.
+    const speed = dt > 0 ? delta / dt : 0;
+    const isParked = Math.abs(speed) < STOP_SPEED;
     // Restart the blink phase on arrival so the first flash lands as it settles.
     if (isParked && !wasParked) parkStart = time;
     wasParked = isParked;
@@ -776,4 +1130,35 @@ function animate(time) {
     renderer.render(scene, camera);
 }
 
-renderer.setAnimationLoop(animate);
+let running = false;
+let snapNext = false;
+
+function startLoop() {
+    if (running) return;
+    running = true;
+    prevTime = 0;        // first frame back gets dt = 0, not a 0.1s jump
+    snapNext = true;     // iOS restores scrollY; without this the car visibly
+                         // drives to the restored position over ~300ms
+
+    // introStart is a performance.now() stamp and animate() receives the rAF
+    // timestamp — the same clock, but a pause leaves the stamp stale, so on
+    // resume the intro evaluates as complete and the light bar's emissive ramp
+    // is stranded wherever it had reached. Finish it explicitly.
+    if (introStart !== null) {
+        introStart = null;
+        lamps.bar.forEach(m => { m.material.emissiveIntensity = 1.5; });
+    }
+
+    renderer.setAnimationLoop(animate);
+}
+
+function stopLoop() {
+    if (!running) return;
+    running = false;
+    renderer.setAnimationLoop(null);
+}
+
+document.addEventListener('visibilitychange',
+    () => document.hidden ? stopLoop() : startLoop());
+
+startLoop();

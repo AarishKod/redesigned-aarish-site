@@ -1,4 +1,11 @@
 :root {
+    --nav-h: 64px;
+
+    /* Where the car lives on screen, as fractions of the viewport height.
+       main.js reads these back; 0/1 means "no band framing" (desktop). */
+    --band-top: 0;
+    --band-bot: 1;
+
     --paper: #FCFBF8;
     --chalk: #DDD9CF;
     --graphite: #2B2926;
@@ -13,7 +20,7 @@
 body {
     margin: 0;
     background: var(--paper);
-    font-family: 'Switzer', -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
     color: var(--graphite);
 }
 
@@ -25,7 +32,7 @@ body {
     left: 0;
     right: 0;
     z-index: 100;
-    height: 64px;
+    height: var(--nav-h);
     display: flex;
     align-items: center;
     gap: 28px;
@@ -185,19 +192,19 @@ body {
     color: var(--stone);
 }
 
+/* Nav chrome only. Content rules live in the mobile block at the END of this
+   file — media queries carry no specificity, so overrides placed up here lose
+   to the equal-specificity content rules declared below them. */
 @media (max-width: 720px) {
     .nav {
         gap: 14px;
-        padding: 0 16px;
+        height: calc(var(--nav-h) + env(safe-area-inset-top));
+        padding: env(safe-area-inset-top) calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left));
     }
 
     .pill {
         padding: 0 12px;
         font-size: 14px;
-    }
-
-    .right .pill {
-        display: none;
     }
 }
 
@@ -241,6 +248,11 @@ body {
     border-radius: 50%;
     object-fit: cover;
     height: 25vh;
+    /* The width/height HTML attributes supply the intrinsic ratio (which is
+       what stops layout shift), but they also act as presentational hints —
+       and with no author `width` here, that hint would win and stretch the
+       circle into an ellipse. `auto` hands the width back to aspect-ratio. */
+    width: auto;
     aspect-ratio: 1 / 1;
 }
 
@@ -253,13 +265,21 @@ body {
 }
 
 .hero h1 {
-    font-family: 'Switzer', sans-serif;
+    font-family: inherit;
     font-weight: 900;
     font-size: clamp(2.5rem, 6vw, 5rem);
     line-height: 0.95;
     letter-spacing: -0.03em;
     color: var(--graphite);
     margin: 0 0 2rem;
+}
+
+/* A pill hugs its label. Note the selector matches the DOM, not the box tree:
+   .sec-bot is `display: contents` here, so the button's flex container is
+   .text-cont (which would otherwise stretch it to the full column width)
+   while its DOM parent is still .sec-bot. */
+.sec-bot > .pill {
+    align-self: flex-start;
 }
 
 .hero-links {
@@ -318,7 +338,7 @@ body {
 }
 
 .whatsnext-title {
-    font-family: 'Switzer', sans-serif;
+    font-family: inherit;
     font-weight: 900;
     font-size: clamp(2.5rem, 3vw, 5rem);
     line-height: 0.95;
@@ -328,7 +348,7 @@ body {
 }
 
 .text-cont p {
-    line-height: 0.5rem;
+    line-height: 1.5;
 }
 /* ---------- contact modal ---------- */
 
@@ -495,6 +515,488 @@ body.is-loading {
 
     .loader,
     .loader-fill {
+        transition: none;
+    }
+}
+
+/* ===========================================================================
+   MOBILE
+   ---------------------------------------------------------------------------
+   Everything below is declared last on purpose. Media queries contribute zero
+   specificity, so a `.hero { width: auto }` placed in the nav block at the top
+   of this file would lose to `.hero { width: 60vw }` further down. Rules that
+   override an ID (#munichre, #northeastern, #whatsnext) repeat the ID, because
+   source order alone cannot beat 1-0-0.
+   =========================================================================== */
+
+/* Off-mobile these wrappers must not exist for layout purposes, so the flex
+   tree inside .text-cont stays exactly what it was before they were added. */
+.sec-top,
+.sec-bot {
+    display: contents;
+}
+
+@media (max-width: 767px) {
+
+    /* The car's band, as fractions of the viewport. Sections are 100dvh, so a
+       section fraction and a viewport fraction are the same number — which is
+       what lets main.js frame the car straight into these values. */
+    :root {
+        --band-top: 0.27;
+        --band-bot: 0.72;
+    }
+
+    /* --- the three-row band grid ------------------------------------------
+       Rows are declared in viewport units, so the band's edges are a pure
+       function of viewport height rather than of how much text a section
+       happens to hold. Row 2 is left empty: that is where the car shows. */
+    .overlay > section {
+        min-height: 100dvh;
+        width: auto;
+        max-width: none;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-rows:
+            calc(var(--band-top) * 100dvh)
+            calc((var(--band-bot) - var(--band-top)) * 100dvh)
+            minmax(0, 1fr);
+        column-gap: 0.875rem;
+        padding:
+            0 calc(1.25rem + env(safe-area-inset-right))
+            0 calc(1.25rem + env(safe-area-inset-left));
+    }
+
+    /* Flatten the intermediate wrappers so the leaves become grid items. */
+    #munichre > .hero,
+    #northeastern > .hero,
+    .overlay .text-cont {
+        display: contents;
+    }
+
+    .sec-top,
+    .sec-bot {
+        display: block;
+    }
+
+    /* Insurance: the nested .hero carries its own min-height/width, which are
+       inert under `display: contents` but would double a section's height if
+       that flattening were ever removed. */
+    #munichre > .hero,
+    #northeastern > .hero {
+        min-height: 0;
+        width: auto;
+    }
+
+    /* --- row 1: logo + headline, sitting on the band's top edge ----------- */
+    .overlay > section .img-cont {
+        grid-area: 1 / 1 / 2 / 2;
+        align-self: end;
+        justify-self: start;
+        padding-bottom: 0.5rem;
+        margin-top: calc(var(--nav-h) + env(safe-area-inset-top));
+    }
+
+    .sec-top {
+        grid-area: 1 / 2 / 2 / -1;
+        align-self: end;
+        padding-bottom: 0.5rem;
+        margin-top: calc(var(--nav-h) + env(safe-area-inset-top));
+    }
+
+    /* --- row 3: the detail block ------------------------------------------ */
+    .sec-bot {
+        grid-area: 3 / 1 / 4 / -1;
+        align-self: start;
+        padding-top: 1.25rem;
+        padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+    }
+
+    /* --- stations: beat the 1-0-0 padding/max-width rules ------------------ */
+    #munichre,
+    #northeastern,
+    #whatsnext {
+        max-width: none;
+        padding:
+            0 calc(1.25rem + env(safe-area-inset-right))
+            0 calc(1.25rem + env(safe-area-inset-left));
+    }
+
+    #whatsnext .sec-top {
+        grid-area: 1 / 1 / 2 / -1;
+        justify-self: center;
+        text-align: center;
+    }
+
+    /* --- stations 1 and 2: the finale's composition ------------------------
+       Heading (with its logo) centred above the car, detail text centred
+       below, matching #whatsnext.
+
+       Four columns rather than `justify-content: center` on the existing two:
+       .sec-bot spans 1 / -1, and centring a two-column grid would shrink the
+       track total to the width of logo + heading, dragging .sec-bot down to
+       that width too. The 1fr spacers centre the pair while leaving the full
+       content width intact for the row below. */
+    #munichre,
+    #northeastern {
+        grid-template-columns: 1fr auto minmax(0, auto) 1fr;
+        /* the inherited gap would also apply either side of the 1fr spacers,
+           so it is zeroed here and reinstated as the pair's own margin */
+        column-gap: 0;
+    }
+
+    #munichre .img-cont,
+    #northeastern .img-cont {
+        grid-area: 1 / 2 / 2 / 3;
+        justify-self: end;
+    }
+
+    #munichre .sec-top,
+    #northeastern .sec-top {
+        grid-area: 1 / 3 / 2 / 4;
+        justify-self: start;
+        margin-left: 0.875rem;
+    }
+
+    #munichre .sec-bot,
+    #northeastern .sec-bot,
+    #whatsnext .sec-bot {
+        text-align: center;
+    }
+
+    /* --- hero: photo, headline and links stacked and centred ---------------
+       Row 1 of the shared grid is split in two so the photo gets a line of
+       its own above the headline. The flexible row absorbs the headline's
+       height, and the band and bottom rows are fixed, so the band's edges
+       stay exactly where main.js framed the car. */
+    .overlay > .hero {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows:
+            minmax(0, 1fr)
+            auto
+            calc((var(--band-bot) - var(--band-top)) * 100dvh)
+            calc((1 - var(--band-bot)) * 100dvh);
+        column-gap: 0;
+    }
+
+    .overlay > .hero .img-cont {
+        grid-area: 1 / 1 / 2 / -1;
+        justify-self: center;
+    }
+
+    .overlay > .hero .sec-top {
+        grid-area: 2 / 1 / 3 / -1;
+        justify-self: center;
+        text-align: center;
+        margin-top: 0;
+    }
+
+    /* Nudged down into the empty top of the band, above the car's roof.
+       `top` offsets paint only, so the grid rows (and with them the band the
+       camera is framed against) stay where they are. */
+    .overlay > .hero .img-cont,
+    .overlay > .hero .sec-top {
+        position: relative;
+        top: 7dvh;
+    }
+
+    .overlay > .hero .profile {
+        height: clamp(4.5rem, 24vw, 6.25rem);
+        width: clamp(4.5rem, 24vw, 6.25rem);
+    }
+
+    .overlay > .hero .sec-bot {
+        grid-area: 4 / 1 / 5 / -1;
+    }
+
+    .overlay > .hero .hero-links {
+        justify-content: center;
+    }
+
+    /* --- type ------------------------------------------------------------- */
+    .hero h1 {
+        font-size: clamp(1.75rem, 8vw, 2.375rem);
+        line-height: 1.04;
+        letter-spacing: -0.025em;
+        margin: 0;
+        max-width: none;
+    }
+
+    #munichre .hero h1,
+    #northeastern .hero h1 {
+        font-size: clamp(1.625rem, 7.2vw, 2.125rem);
+        line-height: 1.06;
+        /* Cap the measure so the heading's grid track stays content-sized.
+           Uncapped, a heading too long for one line ("Northeastern
+           University") expands its track to the whole row and wraps inside
+           it; the 1fr spacers then collapse to zero and the short last line
+           leaves the logo+heading pair sitting left of centre, even though
+           the TRACKS are centred correctly. */
+        max-width: 12ch;
+    }
+
+    .whatsnext-title {
+        font-size: clamp(2.125rem, 10vw, 3rem);
+        line-height: 1;
+    }
+
+    .text-cont p,
+    .sec-bot p {
+        font-size: 0.9375rem;
+        line-height: 1.45;
+        margin: 0 0 0.5rem;
+        text-wrap: pretty;
+    }
+
+    .sec-bot p:last-child {
+        margin-bottom: 0;
+    }
+
+    .whatsnext-blurb {
+        color: var(--stone);
+    }
+
+    /* 38px is below the comfortable touch target. */
+    .pill {
+        height: 44px;
+        padding: 0 14px;
+        font-size: 0.9375rem;
+    }
+
+    /* --- images ----------------------------------------------------------- */
+    .profile {
+        height: clamp(3.25rem, 15vw, 4.5rem);
+        width: clamp(3.25rem, 15vw, 4.5rem);
+    }
+
+    /* Logos read better square than circle-cropped at this size. */
+    #munichre .profile,
+    #northeastern .profile {
+        border-radius: 6px;
+        object-fit: contain;
+        height: clamp(2.75rem, 13vw, 3.75rem);
+        width: clamp(2.75rem, 13vw, 3.75rem);
+    }
+
+    .hero-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .hero-links a {
+        padding: 0 14px;
+        font-size: 0.9375rem;
+    }
+
+    #munichre-btn {
+        display: inline-flex;
+        margin-bottom: 0.875rem;
+    }
+
+    /* --- legibility over the scene ----------------------------------------
+       scene.background is 0xfcfbf8, byte-identical to --paper, so a paper ->
+       transparent gradient over the canvas has no visible edge anywhere the
+       car is absent. It only attenuates the car, which reads as the car
+       emerging from and receding into the page.
+       z-index 0 threads between #scene (-1) and .overlay (1); both are body
+       children, so nothing may create a stacking context on body or html. */
+    body::before,
+    body::after {
+        content: '';
+        position: fixed;
+        left: 0;
+        right: 0;
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    body::before {
+        top: 0;
+        height: calc((var(--band-top) + 0.06) * 100dvh);
+        background: linear-gradient(to bottom,
+                var(--paper) 0%,
+                rgba(252, 251, 248, 0.94) 62%,
+                rgba(252, 251, 248, 0) 100%);
+    }
+
+    body::after {
+        bottom: 0;
+        height: calc((1 - var(--band-bot) + 0.06) * 100dvh);
+        background: linear-gradient(to top,
+                var(--paper) 0%,
+                rgba(252, 251, 248, 0.94) 62%,
+                rgba(252, 251, 248, 0) 100%);
+    }
+
+    /* --- modals ----------------------------------------------------------- */
+    .modal {
+        width: 100%;
+        max-width: 480px;
+        /* Cap the MODAL, not its body: total height is padding + h2 + body, so
+           capping only the body lets a wrapping heading push the whole dialog
+           past the viewport, where `align-items: center` clips both ends --
+           including the close button. */
+        max-height: calc(100dvh - 2rem - env(safe-area-inset-bottom));
+        display: flex;
+        flex-direction: column;
+        padding: 22px 20px 20px;
+    }
+
+    .modal-wide {
+        width: 100%;
+    }
+
+    .modal h2 {
+        font-size: 1.125rem;
+        line-height: 1.25;
+        margin: 0 44px 14px 0;
+    }
+
+    .modal-body {
+        max-height: none;
+        flex: 1 1 auto;
+        /* Required: flex items default to min-height:auto, which refuses to
+           shrink, and the overflow would never engage. */
+        min-height: 0;
+        font-size: 0.9375rem;
+        line-height: 1.6;
+    }
+
+    .modal-close {
+        width: 40px;
+        height: 40px;
+        top: 10px;
+        right: 10px;
+    }
+
+    /* --- loader ----------------------------------------------------------- */
+    .loader-track {
+        width: min(420px, 72vw);
+        height: 3px;
+    }
+
+    .loader-inner {
+        gap: 14px;
+        padding: 0 1.25rem;
+    }
+}
+
+/* Landscape phone: a 45% band is ~150px tall, which no layout survives. Reset
+   the band to "whole viewport", which also tells main.js to drop band framing,
+   and fall back to the desktop side-by-side minus the 40vw inset. */
+@media (max-width: 1024px) and (orientation: landscape) and (max-height: 520px) {
+    :root {
+        --band-top: 0;
+        --band-bot: 1;
+    }
+
+    #munichre,
+    #northeastern {
+        padding-left: 14vw;
+    }
+
+    .hero {
+        width: auto;
+        padding: 0 6vw;
+    }
+}
+
+/* On desktop the 3D info card carries this copy, so the HTML duplicate is
+   hidden visually -- but kept in the accessibility tree, because text baked
+   into a canvas texture is invisible to a screen reader. On mobile the card is
+   not built at all and this becomes the visible copy. */
+.whatsnext-role,
+.whatsnext-blurb {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+
+    .whatsnext-role,
+    .whatsnext-blurb {
+        position: static;
+        width: auto;
+        height: auto;
+        margin: 0 0 0.5rem;
+        overflow: visible;
+        clip-path: none;
+        white-space: normal;
+    }
+
+    .whatsnext-blurb {
+        margin-bottom: 0;
+    }
+}
+
+/* ---------- scroll reveal ----------
+   main.js already toggles .visible on each station; nothing consumed it until
+   now. The leaves are targeted rather than .sec-top/.sec-bot because those are
+   `display: contents` on desktop and so generate no box to fade. */
+.stop .img-cont,
+.stop h1,
+.stop .sec-bot > * {
+    opacity: 0;
+    transform: translateY(14px);
+    transition:
+        opacity 520ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.stop.visible .img-cont,
+.stop.visible h1,
+.stop.visible .sec-bot > * {
+    opacity: 1;
+    transform: none;
+}
+
+.stop.visible .img-cont {
+    transition-delay: 0ms;
+}
+
+.stop.visible h1 {
+    transition-delay: 70ms;
+}
+
+.stop.visible .sec-bot > * {
+    transition-delay: 150ms;
+}
+
+/* The document scroll drives the car, so an open modal must not scroll-chain
+   into it -- reading the Munich Re blurb to the end would otherwise drive the
+   car down the track behind the dialog. */
+.modal-backdrop,
+.modal-body {
+    overscroll-behavior: contain;
+}
+
+body.modal-open {
+    overflow: hidden;
+}
+
+/* overflow:hidden on body is unreliable on iOS; without this a touch-drag can
+   still drive the car down the track behind the loading overlay. */
+.loader {
+    touch-action: none;
+}
+
+/* Declared after the reveal rules, which it has to beat at equal specificity.
+   Resetting to the VISIBLE state rather than just killing the transition --
+   with `transition: none` alone the opacity still snaps 0 -> 1 and content
+   pops in and out, which is the thing being avoided. */
+@media (prefers-reduced-motion: reduce) {
+
+    .stop .img-cont,
+    .stop h1,
+    .stop .sec-bot > * {
+        opacity: 1;
+        transform: none;
         transition: none;
     }
 }
